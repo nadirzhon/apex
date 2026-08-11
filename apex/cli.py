@@ -179,8 +179,25 @@ def cmd_ascend(args):
     print("  L2  SLM Gatekeeper: дешёвый фильтр (отсекает 80-90% дорогих вызовов)")
     print("  L3  Hypothesis    : гипотезы из AWM + опц. Frontier-LLM")
     print("  L4  Differential  : 3-way validation → 0% ложных → Finding+CVSS")
+    # живой IDOR/BOLA-тест с 3-way differential
+    if getattr(args, "idor", None):
+        scope, store, http = _load(args)
+        from .ascend.executor import run_idor, IdorTest
+        t = IdorTest(url_template=args.idor, victim_id=args.victim_id,
+                     control_id=args.control_id, id_param=args.id_param)
+        print(f"[ascend] живой IDOR-тест: {args.idor} "
+              f"(victim={args.victim_id}, control={args.control_id})")
+        findings, verdict = run_idor(scope, store, http, args.i_am_authorized, t,
+                                     args.victim_header or "", args.attacker_header or "")
+        store.save()
+        print("  " + verdict.as_evidence())
+        _print_findings(findings)
+        return
     if not args.selftest:
         print("\nЗапусти самотест движка «0% ложных»:  apex ascend --selftest")
+        print("Живой IDOR-тест:  apex ... ascend --idor 'https://t/api/orders/{id}' "
+              "--victim-id 1001 --control-id 999999 "
+              "--victim-header 'Cookie: s=V' --attacker-header 'Cookie: s=A'")
         return
     print("\n[selftest] 3-way differential на синтетике:")
     victim = Resp(200, '{"order":42,"user":"victim","card":"1111","total":500}')
@@ -285,6 +302,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("advise", help="план действий: что делать дальше по находкам").set_defaults(fn=cmd_advise)
     asc = sub.add_parser("ascend", help="движок логических уязвимостей: AWM-граф + 3-way differential (ноль ложных)")
     asc.add_argument("--selftest", action="store_true", help="демо движка нулевых ложных срабатываний")
+    asc.add_argument("--idor", metavar="URL_TEMPLATE", help="живой IDOR/BOLA-тест; URL с {id}")
+    asc.add_argument("--victim-id", default="", help="id объекта, принадлежащего victim")
+    asc.add_argument("--control-id", default="", help="заведомо несуществующий id (контроль)")
+    asc.add_argument("--id-param", default="id", help="имя id-параметра (для отчёта)")
+    asc.add_argument("--victim-header", help="сессия victim, напр. 'Cookie: s=V'")
+    asc.add_argument("--attacker-header", help="сессия attacker, напр. 'Cookie: s=A'")
     asc.set_defaults(fn=cmd_ascend)
     sub.add_parser("report", help="сгенерировать отчёт").set_defaults(fn=cmd_report)
     r = sub.add_parser("run", help="полный конвейер + отчёт")

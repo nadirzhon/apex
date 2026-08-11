@@ -39,9 +39,13 @@ class SafeHTTP:
             time.sleep(self.min_interval - dt)
         self._last = time.monotonic()
 
-    def get(self, url: str, method: str = "GET", max_bytes: int = 512_000) -> Response:
+    def get(self, url: str, method: str = "GET", max_bytes: int = 512_000,
+            headers: dict[str, str] | None = None) -> Response:
         self._throttle()
-        req = urllib.request.Request(url, method=method, headers={"User-Agent": UA})
+        h = {"User-Agent": UA}
+        if headers:
+            h.update(headers)                 # сессии актёров (Cookie/Authorization)
+        req = urllib.request.Request(url, method=method, headers=h)
         ctx = ssl.create_default_context()
         try:
             with urllib.request.urlopen(req, timeout=self.timeout, context=ctx) as r:

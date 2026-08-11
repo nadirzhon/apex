@@ -72,6 +72,10 @@ apex --scope program.json --i-am-authorized giants --hunt anthropic   # наве
 apex --scope program.json --i-am-authorized llm --target https://api.example.com/chat \
      --field message --response-path choices.0.message.content \
      --header "Authorization: Bearer TOKEN" --generations 4
+apex ascend --selftest                               # демо движка «ноль ложных»
+apex --scope program.json --i-am-authorized ascend \
+     --idor 'https://api.example.com/orders/{id}' --victim-id 1001 --control-id 999999 \
+     --victim-header 'Cookie: s=VICTIM' --attacker-header 'Cookie: s=ATTACKER'  # живой BOLA/IDOR
 apex --state .apex/state.json advise                 # ПЛАН ДЕЙСТВИЙ: что делать дальше
 apex --scope program.json report                     # собрать отчёт из находок
 ```
@@ -109,6 +113,7 @@ apex/
 ├── ascend/          движок логических уязвимостей (PROJECT_ASCEND)
 │   ├── awm.py       Application World Model — граф состояний + анти-отравление
 │   ├── differential.py  3-way validation (Baseline/Attacker/Control) — 0% ложных
+│   ├── executor.py  живой BOLA/IDOR-тест реальными HTTP-запросами (2 актёра)
 │   └── pipeline.py  слоистый оркестратор под scope-гейтом
 ├── report.py        отчёты Markdown + HTML
 ├── cli.py           CLI-оркестратор
