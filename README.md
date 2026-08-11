@@ -100,8 +100,10 @@ apex/
 │   ├── web.py       заголовки, TLS, экспонированные файлы
 │   ├── secrets.py   утёкшие ключи в web-контенте
 │   ├── mobile.py    статический анализ APK
-│   └── llm.py       red-team prompt-injection (мост к agentstrike)
+│   ├── llm.py       red-team prompt-injection (мост к agentstrike)
+│   └── webvuln.py   активные SQLi/XSS/exposed-files (мост к web-vuln-scanner)
 ├── advisor.py       советник: приоритет по деньгам + «что делать дальше»
+├── giants.py        каталог AI-программ гигантов + наводка арсенала
 ├── report.py        отчёты Markdown + HTML
 ├── cli.py           CLI-оркестратор
 └── mcp_server.py    мост MCP
