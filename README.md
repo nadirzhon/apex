@@ -17,6 +17,7 @@
 - **Secrets** — поиск утёкших ключей в HTML/JS (AWS/GCP/Slack/Stripe/JWT/приватные ключи), значения в отчёте маскируются.
 - **Mobile** — статический анализ APK (офлайн): разрешения, cleartext-трафик, зашитые секреты.
 - **LLM / AI red-team** — авторизованный prompt-injection по LLM/агентным эндпоинтам через мост к [agentstrike](https://github.com/nadirzhon/agentstrike) (генетический фаззер). Доказательство — canary-маркер (OWASP LLM01), неразрушающе. **Это единственный класс, где даже гиганты сейчас реально уязвимы** — их AI-продукты молоды.
+- **Giants — прицел на крупнейшие цели** — встроенный каталог bug-bounty программ гигантов (Anthropic, OpenAI, Microsoft, xAI, Google) с их scope, политикой по prompt injection и выплатами. `giants --hunt <ключ>` одной командой наводит **весь арсенал** (web + secrets + MCP-скан + AI red-team) на выбранного гиганта — только по доменам, которые есть в твоём scope-файле (fail-closed).
 - **Советник (`advise`)** — не только находит, но и **ведёт**: приоритизирует находки по потенциальному чеку и по каждой даёт пошаговый план — как подтвердить, как безопасно довести до impact (за это платят), какие доказательства собрать, ожидаемая выплата, шаблон отчёта. Плюс гид «что искать руками» (IDOR/SSRF/subdomain takeover/broken access control) для большого чека.
 - **CVSS 3.1** — собственный калькулятор base score (без зависимостей).
 - **Отчёты** — профессиональный репорт под программу: Markdown + HTML, доказательства, ремедиация, серьёзность по CVSS.
@@ -63,6 +64,8 @@ apex --scope program.json --i-am-authorized run      # recon → web → secrets
 apex --scope program.json --i-am-authorized web --target https://api.example.com
 apex --scope program.json --i-am-authorized secrets --target https://example.com
 apex --scope program.json --i-am-authorized mobile --apk app.apk --package com.example.mobile
+apex giants                                          # каталог гигантов + их scope/выплаты
+apex --scope program.json --i-am-authorized giants --hunt anthropic   # навести весь арсенал
 apex --scope program.json --i-am-authorized llm --target https://api.example.com/chat \
      --field message --response-path choices.0.message.content \
      --header "Authorization: Bearer TOKEN" --generations 4

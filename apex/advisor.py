@@ -31,6 +31,23 @@ class Playbook:
 
 # ── Плейбуки по классам находок, которые APEX детектит ───────────────────────
 PLAYBOOKS: dict[str, Playbook] = {
+    "ssrf": Playbook(
+        klass="SSRF — сервер/агент ходит по твоему URL (в т.ч. MCP fetch-инструмент)",
+        why_pays="Критичен в облаке (доступ к metadata 169.254.169.254). Большие выплаты.",
+        reward="$2 000 – $30 000+.",
+        verify=[
+            "Найди параметр, где сервер/агент загружает URL (fetch/preview/webhook/MCP url-параметр).",
+            "Подставь СВОЙ collaborator-домен и поймай входящий запрос от IP цели.",
+        ],
+        escalate=[
+            "Доказательство — попадание на ТВОЙ коллаборатор. Внутреннюю сеть и cloud-metadata "
+            "трогать осторожно и строго по правилам программы.",
+            "Для MCP: покажи, что агент по prompt-injection дёргает fetch на внутренний адрес.",
+        ],
+        evidence=["уязвимый параметр", "лог входящего запроса на твой домен от IP цели"],
+        report_tip="Собственный OOB-сервер (interactsh/свой) обязателен. Для MCP — приложи canary.",
+        safety="Не сканируй внутреннюю сеть цели без явного разрешения.",
+    ),
     "exposed_env": Playbook(
         klass="Экспонированный .env / конфиг с секретами",
         why_pays="Прямая утечка кредов → часто критическая уязвимость.",
@@ -185,6 +202,11 @@ def _match(finding) -> str | None:
         return "exposed_git"
     if "секрет" in t or "ключ" in t or "secret" in t:
         return "leaked_secret"
+    # MCP: свободный url-параметр — реальный SSRF-вектор у агентного инструмента
+    if "ssrf" in t or ("unconstrained" in t and "url" in t):
+        return "ssrf"
+    if "actuator" in t or "swagger" in t:
+        return "exposed_env"
     if "заголов" in t or "cookie" in t:
         return "missing_header"
     if "tls" in t or "сертификат" in t or "протокол" in t:
