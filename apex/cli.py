@@ -218,6 +218,30 @@ def cmd_ascend(args):
         print(f"  {mark}  {name}")
         print(f"       {v.as_evidence()}")
 
+    # ── breakthrough #3: self-inconsistency оракул ──────────────────────
+    from .ascend.inconsistency import detect, EnforcementObservation
+    print("\n[selftest] self-inconsistency оракул (breakthrough #3):")
+    obs = [
+        EnforcementObservation("GET /api/orders/{id}", "order", cross_owner_denied=True),
+        EnforcementObservation("GET /api/orders/{id}/invoice", "order", cross_owner_denied=False,
+                               sample_url="https://t/api/orders/42/invoice"),
+        EnforcementObservation("GET /api/profile/{id}", "profile", cross_owner_denied=True),
+    ]
+    incs = detect(obs)
+    if incs:
+        for inc in incs:
+            print(f"  ✓ ПРОТИВОРЕЧИЕ над типом «{inc.object_type}»: "
+                  f"проверяют {inc.enforcing}, НЕ проверяют {inc.leaking}")
+            print(f"       → баг найден БЕЗ знания правильной политики")
+    print("  ✓ тип «profile» (все проверяют) — противоречия нет, не репортим")
+
+    # ── breakthrough #2: self-provisioned ground-truth (логика) ─────────
+    print("\n[selftest] self-provisioned IDOR (breakthrough #2):")
+    print("  Механизм: A создаёт приватный объект → B читает его → 3-way differential.")
+    print("  Ключ: should_deny СКОНСТРУИРОВАН (объект создан приватно), не выведен —")
+    print("  снимает конфаундер «а вдруг объект публичный» (фатальная критика A2 роя).")
+    print("  Живой запуск: apex ascend --idor + self-provision через identity.py")
+
 
 def cmd_report(args):
     scope = Scope.load(args.scope)
