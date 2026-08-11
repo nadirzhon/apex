@@ -96,3 +96,20 @@ def test_advisor_maps_sqli_and_xss():
     assert advisor._match(fx) == "xss"
     assert "sqli" in advisor.PLAYBOOKS and "xss" in advisor.PLAYBOOKS
     assert "critical" in advisor.PLAYBOOKS["sqli"].reward.lower()
+
+
+# ── arsenal: боевые инструменты под гейтом ───────────────────────────────
+def test_arsenal_gate():
+    from apex.modules import arsenal
+    import pytest as _p
+    with _p.raises(PermissionError):
+        arsenal.run_nuclei(_scope(authorized=False), Store("/tmp/x.json"), False, ["http://x"])
+    with _p.raises(PermissionError):
+        arsenal.run_sqlmap(_scope(authorized=False), Store("/tmp/x.json"), False, ["http://x"])
+
+
+def test_arsenal_have_detects_tools():
+    from apex.modules import arsenal
+    # nuclei/sqlmap установлены в этом окружении
+    assert arsenal.have("sqlmap") is True
+    assert arsenal.have("nonexistent_tool_xyz") is False

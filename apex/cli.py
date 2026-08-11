@@ -15,7 +15,7 @@ from .http import SafeHTTP
 from .report import write as write_report
 from .scope import Scope
 from .store import Store
-from .modules import recon, web, secrets, mobile, llm, webvuln
+from .modules import recon, web, secrets, mobile, llm, webvuln, arsenal
 from . import giants as giants_mod
 
 BANNER = (
@@ -128,6 +128,20 @@ def cmd_webvuln(args):
     _print_findings(new)
 
 
+def cmd_arsenal(args):
+    scope, store, http = _load(args)
+    tool = args.tool
+    print(f"[arsenal] {tool} по {args.target} (боевой инструмент, в рамках scope) …")
+    if tool == "nuclei":
+        new = arsenal.run_nuclei(scope, store, args.i_am_authorized, [args.target])
+    elif tool == "sqlmap":
+        new = arsenal.run_sqlmap(scope, store, args.i_am_authorized, [args.target])
+    else:
+        print(f"неизвестный инструмент: {tool}"); return
+    store.save()
+    _print_findings(new)
+
+
 def cmd_advise(args):
     from .advisor import advise
     store = Store(args.state)
@@ -203,6 +217,10 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--target", required=True, help="URL в scope для активного теста")
     v.add_argument("--no-crawl", action="store_true", help="не обходить сайт, тестировать только заданный URL")
     v.set_defaults(fn=cmd_webvuln)
+    a = sub.add_parser("arsenal", help="боевые инструменты Kali-класса (nuclei/sqlmap) под scope-гейтом")
+    a.add_argument("--tool", required=True, choices=["nuclei", "sqlmap"], help="какой инструмент запустить")
+    a.add_argument("--target", required=True, help="URL в scope")
+    a.set_defaults(fn=cmd_arsenal)
     g = sub.add_parser("giants", help="каталог гигантов + охота всем арсеналом")
     g.add_argument("--hunt", help="ключ гиганта (anthropic/openai/microsoft/xai/google) — навести арсенал")
     g.set_defaults(fn=cmd_giants)
