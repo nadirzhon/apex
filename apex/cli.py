@@ -16,6 +16,7 @@ from .report import write as write_report
 from .scope import Scope
 from .store import Store
 from .modules import recon, web, secrets, mobile, llm
+from . import giants as giants_mod
 
 BANNER = (
     "APEX — только для АВТОРИЗОВАННОГО тестирования в рамках объявленной "
@@ -79,6 +80,29 @@ def cmd_mobile(args):
     _print_findings(new)
 
 
+def cmd_giants(args):
+    if args.hunt:
+        scope, store, http = _load(args)
+        print(f"[giants] наводжу арсенал на «{args.hunt}» в рамках scope «{scope.program}» …")
+        new = giants_mod.hunt(args.hunt, scope, store, http, args.i_am_authorized)
+        store.save()
+        _print_findings(new)
+        print(f"\n  итог: {len(new)} кандидатов. Отчёт: apex --scope ... report")
+        return
+    # каталог целей
+    print("APEX Giants — прицел на крупнейшие цели\n")
+    for g in giants_mod.list_programs():
+        print(f"  ▸ {g['key']:11} {g['name']}")
+        print(f"      платформа: {g['platform']}  ·  {g['reward']}")
+        print(f"      prompt injection: {g['prompt_injection']}")
+        print(f"      scope: {', '.join(g['web_scope'])}")
+        if g.get('note'):
+            print(f"      ↳ {g['note']}")
+        print()
+    print("Охота:  apex --scope <program.json> --i-am-authorized giants --hunt <key>")
+    print("Scope-файл должен включать домены цели и authorized:true (твоя регистрация в программе).")
+
+
 def cmd_llm(args):
     scope, store, http = _load(args)
     print(f"[llm] red-team prompt-injection по {args.target} …")
@@ -94,6 +118,12 @@ def cmd_llm(args):
     )
     store.save()
     _print_findings(new)
+
+
+def cmd_advise(args):
+    from .advisor import advise
+    store = Store(args.state)
+    print(advise(store))
 
 
 def cmd_report(args):
@@ -161,6 +191,10 @@ def build_parser() -> argparse.ArgumentParser:
     l.add_argument("--header", action="append", help='HTTP-заголовок, напр. "Authorization: Bearer TOKEN"')
     l.add_argument("--generations", type=int, default=3, help="поколений генетического поиска")
     l.set_defaults(fn=cmd_llm)
+    g = sub.add_parser("giants", help="каталог гигантов + охота всем арсеналом")
+    g.add_argument("--hunt", help="ключ гиганта (anthropic/openai/microsoft/xai/google) — навести арсенал")
+    g.set_defaults(fn=cmd_giants)
+    sub.add_parser("advise", help="план действий: что делать дальше по находкам").set_defaults(fn=cmd_advise)
     sub.add_parser("report", help="сгенерировать отчёт").set_defaults(fn=cmd_report)
     r = sub.add_parser("run", help="полный конвейер + отчёт")
     r.add_argument("--target", action="append", help="явные URL для web/secrets")

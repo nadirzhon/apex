@@ -103,6 +103,14 @@ def findings_list() -> dict:
 
 
 @mcp.tool()
+def advise() -> str:
+    """План действий: приоритет находок по деньгам + пошаговое «что делать
+    дальше» по каждой зацепке + гид по классам под большой чек."""
+    from .advisor import advise as _advise
+    return _advise(Store(_STATE))
+
+
+@mcp.tool()
 def generate_report() -> dict:
     """Сгенерировать отчёт (Markdown + HTML) по текущим находкам."""
     scope = Scope.load(_SCOPE_PATH)

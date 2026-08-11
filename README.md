@@ -17,6 +17,7 @@
 - **Secrets** — поиск утёкших ключей в HTML/JS (AWS/GCP/Slack/Stripe/JWT/приватные ключи), значения в отчёте маскируются.
 - **Mobile** — статический анализ APK (офлайн): разрешения, cleartext-трафик, зашитые секреты.
 - **LLM / AI red-team** — авторизованный prompt-injection по LLM/агентным эндпоинтам через мост к [agentstrike](https://github.com/nadirzhon/agentstrike) (генетический фаззер). Доказательство — canary-маркер (OWASP LLM01), неразрушающе. **Это единственный класс, где даже гиганты сейчас реально уязвимы** — их AI-продукты молоды.
+- **Советник (`advise`)** — не только находит, но и **ведёт**: приоритизирует находки по потенциальному чеку и по каждой даёт пошаговый план — как подтвердить, как безопасно довести до impact (за это платят), какие доказательства собрать, ожидаемая выплата, шаблон отчёта. Плюс гид «что искать руками» (IDOR/SSRF/subdomain takeover/broken access control) для большого чека.
 - **CVSS 3.1** — собственный калькулятор base score (без зависимостей).
 - **Отчёты** — профессиональный репорт под программу: Markdown + HTML, доказательства, ремедиация, серьёзность по CVSS.
 - **Мост MCP** — движок как MCP-инструменты; Claude ведёт энгейджмент разговором в границах scope.
@@ -65,6 +66,7 @@ apex --scope program.json --i-am-authorized mobile --apk app.apk --package com.e
 apex --scope program.json --i-am-authorized llm --target https://api.example.com/chat \
      --field message --response-path choices.0.message.content \
      --header "Authorization: Bearer TOKEN" --generations 4
+apex --state .apex/state.json advise                 # ПЛАН ДЕЙСТВИЙ: что делать дальше
 apex --scope program.json report                     # собрать отчёт из находок
 ```
 
@@ -95,6 +97,7 @@ apex/
 │   ├── secrets.py   утёкшие ключи в web-контенте
 │   ├── mobile.py    статический анализ APK
 │   └── llm.py       red-team prompt-injection (мост к agentstrike)
+├── advisor.py       советник: приоритет по деньгам + «что делать дальше»
 ├── report.py        отчёты Markdown + HTML
 ├── cli.py           CLI-оркестратор
 └── mcp_server.py    мост MCP
