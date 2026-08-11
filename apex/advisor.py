@@ -271,6 +271,19 @@ def advise(store: Store) -> str:
     out.append("APEX — ПЛАН ДЕЙСТВИЙ (что делать дальше, по приоритету дохода)")
     out.append("═" * 70)
 
+    # Фильтр приемлемости по HackerOne Core Ineligible Findings
+    from .eligibility import partition, ELIGIBLE, NEEDS_IMPACT, INELIGIBLE
+    part = partition(ranked)
+    out.append("\nФИЛЬТР ПРИЕМЛЕМОСТИ (HackerOne):")
+    out.append(f"  ✅ нести в отчёт: {len(part[ELIGIBLE])}   "
+               f"⚠ нужен impact: {len(part[NEEDS_IMPACT])}   "
+               f"⛔ НЕ подавать (закроют): {len(part[INELIGIBLE])}")
+    if part[INELIGIBLE]:
+        out.append("  ⛔ Ineligible (HackerOne закроет как invalid — не трать время):")
+        for f, why in part[INELIGIBLE]:
+            out.append(f"     - {f.title}  ({why})")
+    out.append("")
+
     if not ranked:
         out.append("\nНаходок пока нет. Сначала: apex run / apex web / apex secrets.\n")
     else:
@@ -281,9 +294,12 @@ def advise(store: Store) -> str:
             out.append(f"  Почему: {pk.why_pays}  Ожидаемый чек: {pk.reward}")
         out.append("")
 
+    from .eligibility import classify, ELIGIBLE, NEEDS_IMPACT
+    _tag = {ELIGIBLE: "✅", NEEDS_IMPACT: "⚠", "INELIGIBLE": "⛔"}
     for i, f in enumerate(ranked, 1):
         pk = PLAYBOOKS.get(_match(f) or "")
-        out.append(f"[{i}] ({f.severity}) {f.title}")
+        verdict, _why = classify(f)
+        out.append(f"[{i}] {_tag.get(verdict, '?')} ({f.severity}) {f.title}")
         out.append(f"    цель: {f.target}")
         if not pk:
             out.append("    → проверь вручную; собери доказательство и оцени impact.\n")
