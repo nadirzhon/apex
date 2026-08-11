@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.apex/
+*.egg-info/
+dist/
+build/
+.venv/
+.DS_Store
+# рабочие scope-файлы и состояние — не коммитить (могут содержать реальные цели)
+/program.json
+/state.json

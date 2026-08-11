@@ -1,0 +1,18 @@
+{
+  "program": "Example Corp — Public Bug Bounty",
+  "platform": "hackerone",
+  "authorized": true,
+  "researcher": "nadirzhon",
+  "rate_limit_rps": 2,
+  "in_scope": [
+    "*.example.com",
+    "api.example.com",
+    "com.example.mobile"
+  ],
+  "out_of_scope": [
+    "blog.example.com",
+    "*.staging.example.com",
+    "status.example.com"
+  ],
+  "rules": "Только неразрушающее тестирование. Запрещены DoS, соц.инженерия, спам, автоматический брутфорс учётных данных. Соблюдать rate limit программы."
+}
