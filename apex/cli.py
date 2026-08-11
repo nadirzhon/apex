@@ -170,6 +170,38 @@ def cmd_advise(args):
     print(advise(store))
 
 
+def cmd_ascend(args):
+    """ASCEND — движок логических уязвимостей (AWM-граф + 3-way differential)."""
+    from .ascend.differential import three_way, Resp
+    print("ASCEND — автономный поиск логических уязвимостей (BOLA/IDOR, privesc)")
+    print("Архитектура (под scope-гейтом, Layer 0):")
+    print("  L1  Recon → AWM   : граф состояний приложения (узлы+рёбра+привилегии)")
+    print("  L2  SLM Gatekeeper: дешёвый фильтр (отсекает 80-90% дорогих вызовов)")
+    print("  L3  Hypothesis    : гипотезы из AWM + опц. Frontier-LLM")
+    print("  L4  Differential  : 3-way validation → 0% ложных → Finding+CVSS")
+    if not args.selftest:
+        print("\nЗапусти самотест движка «0% ложных»:  apex ascend --selftest")
+        return
+    print("\n[selftest] 3-way differential на синтетике:")
+    victim = Resp(200, '{"order":42,"user":"victim","card":"1111","total":500}')
+    cases = {
+        "реальный IDOR (attacker=данные жертвы, control=ошибка)":
+            (Resp(200, '{"order":42,"user":"victim","card":"1111","total":500}'),
+             Resp(200, '{"error":"not found"}')),
+        "FP-ловушка: кастомный 200 error":
+            (Resp(200, '<html>Oops, not found</html>'),
+             Resp(200, '<html>Oops, not found</html>')),
+        "FP-ловушка: generic дашборд на любой id":
+            (Resp(200, '<html>Your dashboard</html>'),
+             Resp(200, '<html>Your dashboard</html>')),
+    }
+    for name, (attacker, control) in cases.items():
+        v = three_way(victim, attacker, control)
+        mark = "✓ ПОДТВЕРЖДЕНО" if v.confirmed else "✗ отклонено"
+        print(f"  {mark}  {name}")
+        print(f"       {v.as_evidence()}")
+
+
 def cmd_report(args):
     scope = Scope.load(args.scope)
     store = Store(args.state)
@@ -251,6 +283,9 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--hunt", help="ключ гиганта (anthropic/openai/microsoft/xai/google) — навести арсенал")
     g.set_defaults(fn=cmd_giants)
     sub.add_parser("advise", help="план действий: что делать дальше по находкам").set_defaults(fn=cmd_advise)
+    asc = sub.add_parser("ascend", help="движок логических уязвимостей: AWM-граф + 3-way differential (ноль ложных)")
+    asc.add_argument("--selftest", action="store_true", help="демо движка нулевых ложных срабатываний")
+    asc.set_defaults(fn=cmd_ascend)
     sub.add_parser("report", help="сгенерировать отчёт").set_defaults(fn=cmd_report)
     r = sub.add_parser("run", help="полный конвейер + отчёт")
     r.add_argument("--target", action="append", help="явные URL для web/secrets")

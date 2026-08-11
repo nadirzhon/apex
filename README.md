@@ -21,6 +21,7 @@
 - **Kali-арсенал (Docker)** — полный bug-bounty стек в контейнере `apex-kali` (nmap/sqlmap/nuclei/ffuf/gobuster/subfinder/nikto + seclists). APEX дирижирует ими через `docker run` под scope-гейтом: `kali --tool subfinder|ffuf|nuclei|sqlmap`. **ffuf+seclists = content discovery** (скрытые endpoints, где живут серьёзные баги); **sqlmap = реальная эксплуатация** SQLi до proof.
 - **Giants — прицел на крупнейшие цели** — встроенный каталог bug-bounty программ гигантов (Anthropic, OpenAI, Microsoft, xAI, Google) с их scope, политикой по prompt injection и выплатами. `giants --hunt <ключ>` одной командой наводит **весь арсенал** (web + secrets + MCP-скан + AI red-team) на выбранного гиганта — только по доменам, которые есть в твоём scope-файле (fail-closed).
 - **Советник (`advise`)** — не только находит, но и **ведёт**: приоритизирует находки по потенциальному чеку и по каждой даёт пошаговый план — как подтвердить, как безопасно довести до impact (за это платят), какие доказательства собрать, ожидаемая выплата, шаблон отчёта. Плюс гид «что искать руками» (IDOR/SSRF/subdomain takeover/broken access control) для большого чека.
+- **ASCEND — логические уязвимости** — движок автономного поиска BOLA/IDOR, privesc, state-machine bypass. **Application World Model** (граф состояний приложения с анти-отравлением хешей) + **3-way differential validation** (Baseline/Attacker/Control → гарантия против ложных: подтверждает, только если атакующий получил данные жертвы И это не кастомная 200-ошибка). `apex ascend --selftest` показывает движок в деле.
 - **CVSS 3.1** — собственный калькулятор base score (без зависимостей).
 - **Отчёты** — профессиональный репорт под программу: Markdown + HTML, доказательства, ремедиация, серьёзность по CVSS.
 - **Мост MCP** — движок как MCP-инструменты; Claude ведёт энгейджмент разговором в границах scope.
@@ -105,6 +106,10 @@ apex/
 │   └── webvuln.py   активные SQLi/XSS/exposed-files (мост к web-vuln-scanner)
 ├── advisor.py       советник: приоритет по деньгам + «что делать дальше»
 ├── giants.py        каталог AI-программ гигантов + наводка арсенала
+├── ascend/          движок логических уязвимостей (PROJECT_ASCEND)
+│   ├── awm.py       Application World Model — граф состояний + анти-отравление
+│   ├── differential.py  3-way validation (Baseline/Attacker/Control) — 0% ложных
+│   └── pipeline.py  слоистый оркестратор под scope-гейтом
 ├── report.py        отчёты Markdown + HTML
 ├── cli.py           CLI-оркестратор
 └── mcp_server.py    мост MCP

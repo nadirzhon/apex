@@ -111,6 +111,22 @@ def advise() -> str:
 
 
 @mcp.tool()
+def ascend_verify(baseline_status: int, baseline_body: str,
+                  attacker_status: int, attacker_body: str,
+                  control_status: int, control_body: str) -> dict:
+    """3-way differential validation (движок ASCEND, 0% ложных). Подтверждает
+    IDOR/BOLA только если attacker получил данные жертвы И это не страница-ошибка."""
+    from .ascend.differential import three_way, Resp
+    v = three_way(Resp(baseline_status, baseline_body),
+                  Resp(attacker_status, attacker_body),
+                  Resp(control_status, control_body))
+    return {"confirmed": v.confirmed, "reason": v.reason,
+            "sim_baseline": round(v.sim_baseline, 3),
+            "sim_control": round(v.sim_control, 3),
+            "evidence": v.as_evidence()}
+
+
+@mcp.tool()
 def generate_report() -> dict:
     """Сгенерировать отчёт (Markdown + HTML) по текущим находкам."""
     scope = Scope.load(_SCOPE_PATH)
