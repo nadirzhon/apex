@@ -24,7 +24,7 @@ from pathlib import Path
 from .models import Finding
 from .scope import Scope
 from .store import Store
-from .modules import web, secrets, llm
+from .modules import web, secrets, llm, webvuln
 
 # ── Каталог гигантов ────────────────────────────────────────────────────
 # Курировано из публичных политик программ (2026). ai_endpoints/mcp_endpoints
@@ -149,6 +149,11 @@ def hunt(program_key: str, scope: Scope, store: Store, http, authorized: bool) -
     if in_scope_urls:
         findings += web.run(scope, store, http, authorized, in_scope_urls)
         findings += secrets.run(scope, store, http, authorized, in_scope_urls)
+        # серьёзные классы: активная проверка SQLi/XSS (best-effort — нужен requests+bs4)
+        try:
+            findings += webvuln.run(scope, store, http, authorized, in_scope_urls)
+        except (RuntimeError, Exception):
+            pass  # web-vuln-scanner/зависимости недоступны — пропускаем, не роняя охоту
 
     # 2) MCP-поверхность через mcpscan
     for murl in g.get("mcp_endpoints", []):

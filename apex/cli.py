@@ -15,7 +15,7 @@ from .http import SafeHTTP
 from .report import write as write_report
 from .scope import Scope
 from .store import Store
-from .modules import recon, web, secrets, mobile, llm
+from .modules import recon, web, secrets, mobile, llm, webvuln
 from . import giants as giants_mod
 
 BANNER = (
@@ -120,6 +120,14 @@ def cmd_llm(args):
     _print_findings(new)
 
 
+def cmd_webvuln(args):
+    scope, store, http = _load(args)
+    print(f"[webvuln] активная проверка SQLi/XSS/exposed-files: {args.target} …")
+    new = webvuln.run(scope, store, http, args.i_am_authorized, [args.target], crawl=not args.no_crawl)
+    store.save()
+    _print_findings(new)
+
+
 def cmd_advise(args):
     from .advisor import advise
     store = Store(args.state)
@@ -191,6 +199,10 @@ def build_parser() -> argparse.ArgumentParser:
     l.add_argument("--header", action="append", help='HTTP-заголовок, напр. "Authorization: Bearer TOKEN"')
     l.add_argument("--generations", type=int, default=3, help="поколений генетического поиска")
     l.set_defaults(fn=cmd_llm)
+    v = sub.add_parser("webvuln", help="активная проверка серьёзных классов: SQLi/XSS/exposed-files")
+    v.add_argument("--target", required=True, help="URL в scope для активного теста")
+    v.add_argument("--no-crawl", action="store_true", help="не обходить сайт, тестировать только заданный URL")
+    v.set_defaults(fn=cmd_webvuln)
     g = sub.add_parser("giants", help="каталог гигантов + охота всем арсеналом")
     g.add_argument("--hunt", help="ключ гиганта (anthropic/openai/microsoft/xai/google) — навести арсенал")
     g.set_defaults(fn=cmd_giants)

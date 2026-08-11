@@ -48,6 +48,39 @@ PLAYBOOKS: dict[str, Playbook] = {
         report_tip="Собственный OOB-сервер (interactsh/свой) обязателен. Для MCP — приложи canary.",
         safety="Не сканируй внутреннюю сеть цели без явного разрешения.",
     ),
+    "sqli": Playbook(
+        klass="SQL-инъекция — прямой доступ к БД",
+        why_pays="Один из самых дорогих классов: доступ к данным всех пользователей.",
+        reward="$3 000 – $30 000+ (critical).",
+        verify=[
+            "Подтверди инъекцию безопасно: булева/тайминг-проверка (AND 1=1 vs 1=2), НЕ дамп данных.",
+            "Зафиксируй уязвимый параметр и тип БД по сообщению об ошибке.",
+        ],
+        escalate=[
+            "НЕ выгружай чужие данные. Impact доказывается контролируемым признаком "
+            "(разница ответов, задержка sleep), а не кражей строк.",
+            "Максимум — вытащи version()/current_user на своём тестовом аккаунте.",
+        ],
+        evidence=["уязвимый параметр+payload", "разница ответов true/false или тайминг", "тип БД"],
+        report_tip="Заголовок: «SQL Injection in <param> at <endpoint>». Приложи безопасный PoC.",
+        safety="Никакого дампа/UPDATE/DROP. Только доказательство управляемости запроса.",
+    ),
+    "xss": Playbook(
+        klass="Reflected/Stored XSS — исполнение кода в браузере жертвы",
+        why_pays="Ведёт к краже сессии/действиям от лица пользователя (часто ATO).",
+        reward="$500 – $10 000+ (stored и на чувствительном домене — дороже).",
+        verify=[
+            "Подтверди, что payload реально исполняется (alert(document.domain)), а не просто отражается.",
+            "Проверь контекст (HTML/attr/JS) и обходит ли он экранирование/CSP.",
+        ],
+        escalate=[
+            "Для impact покажи кражу непубличного (напр. document.cookie на своём тест-аккаунте).",
+            "Stored XSS на странице, которую видят другие — существенно дороже reflected.",
+        ],
+        evidence=["URL+payload", "скриншот срабатывания alert(document.domain)", "контекст внедрения"],
+        report_tip="Заголовок: «Reflected XSS in <param>». PoC-ссылка, срабатывающая в один клик.",
+        safety="Тестируй только на своём аккаунте; не таргетируй других пользователей.",
+    ),
     "exposed_env": Playbook(
         klass="Экспонированный .env / конфиг с секретами",
         why_pays="Прямая утечка кредов → часто критическая уязвимость.",
@@ -196,6 +229,10 @@ def _match(finding) -> str | None:
     m = finding.module
     if m == "llm":
         return "prompt_injection"
+    if "sql injection" in t or "sqli" in t:
+        return "sqli"
+    if "xss" in t:
+        return "xss"
     if ".env" in t or "конфиг" in t:
         return "exposed_env"
     if ".git" in t:

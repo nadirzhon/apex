@@ -75,3 +75,24 @@ def test_advise_produces_plan(tmp_path):
     text = advisor.advise(store)
     assert "ПЛАН ДЕЙСТВИЙ" in text
     assert "example.com" in text
+
+
+# ── webvuln: серьёзные классы ────────────────────────────────────────────
+def test_webvuln_gate_and_target():
+    from apex.modules import webvuln
+    import pytest as _p
+    # без авторизации — отказ
+    with _p.raises(PermissionError):
+        webvuln.run(_scope(authorized=False), Store("/tmp/x.json"), None, False, ["http://x"])
+    # без цели — ошибка (активные payload'ы не по угадайке)
+    with _p.raises(ValueError):
+        webvuln.run(_scope(), Store("/tmp/x.json"), None, True, [])
+
+
+def test_advisor_maps_sqli_and_xss():
+    fs = Finding(title="SQL Injection: param=id", severity="critical", target="x", module="webvuln")
+    fx = Finding(title="Reflected XSS: param=q", severity="high", target="x", module="webvuln")
+    assert advisor._match(fs) == "sqli"
+    assert advisor._match(fx) == "xss"
+    assert "sqli" in advisor.PLAYBOOKS and "xss" in advisor.PLAYBOOKS
+    assert "critical" in advisor.PLAYBOOKS["sqli"].reward.lower()
