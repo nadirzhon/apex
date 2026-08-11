@@ -179,6 +179,20 @@ def cmd_ascend(args):
     print("  L2  SLM Gatekeeper: дешёвый фильтр (отсекает 80-90% дорогих вызовов)")
     print("  L3  Hypothesis    : гипотезы из AWM + опц. Frontier-LLM")
     print("  L4  Differential  : 3-way validation → 0% ложных → Finding+CVSS")
+    # Autorize-режим: авто-поиск IDOR по HAR
+    if getattr(args, "autorize", None):
+        scope, store, http = _load(args)
+        from .ascend.autorize import run as autorize_run
+        print(f"[ascend/autorize] прогон HAR {args.autorize} с cookie attacker …")
+        findings, stats = autorize_run(scope, store, http, args.i_am_authorized,
+                                       args.autorize, args.attacker_header or "")
+        store.save()
+        print(f"  запросов в HAR: {stats['total']}  протестировано: {stats['tested']}  "
+              f"кандидатов: {stats['candidates']}")
+        _print_findings(findings)
+        if findings:
+            print("\n  ⚠ Это КАНДИДАТЫ. Подтверди каждый через ascend --idor перед подачей.")
+        return
     # живой IDOR/BOLA-тест с 3-way differential
     if getattr(args, "idor", None):
         scope, store, http = _load(args)
@@ -326,6 +340,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("advise", help="план действий: что делать дальше по находкам").set_defaults(fn=cmd_advise)
     asc = sub.add_parser("ascend", help="движок логических уязвимостей: AWM-граф + 3-way differential (ноль ложных)")
     asc.add_argument("--selftest", action="store_true", help="демо движка нулевых ложных срабатываний")
+    asc.add_argument("--autorize", metavar="HAR_FILE", help="авто-поиск IDOR по HAR-экспорту (реплей с cookie attacker)")
     asc.add_argument("--idor", metavar="URL_TEMPLATE", help="живой IDOR/BOLA-тест; URL с {id}")
     asc.add_argument("--victim-id", default="", help="id объекта, принадлежащего victim")
     asc.add_argument("--control-id", default="", help="заведомо несуществующий id (контроль)")
