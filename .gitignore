@@ -9,3 +9,4 @@ build/
 # рабочие scope-файлы и состояние — не коммитить (могут содержать реальные цели)
 /program.json
 /state.json
+/programs/

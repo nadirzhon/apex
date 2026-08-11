@@ -15,7 +15,7 @@ from .http import SafeHTTP
 from .report import write as write_report
 from .scope import Scope
 from .store import Store
-from .modules import recon, web, secrets, mobile
+from .modules import recon, web, secrets, mobile, llm
 
 BANNER = (
     "APEX — только для АВТОРИЗОВАННОГО тестирования в рамках объявленной "
@@ -79,6 +79,23 @@ def cmd_mobile(args):
     _print_findings(new)
 
 
+def cmd_llm(args):
+    scope, store, http = _load(args)
+    print(f"[llm] red-team prompt-injection по {args.target} …")
+    headers = {}
+    for h in args.header or []:
+        if ":" in h:
+            k, v = h.split(":", 1)
+            headers[k.strip()] = v.strip()
+    new = llm.run(
+        scope, store, http, args.i_am_authorized, [args.target],
+        field=args.field, response_path=args.response_path,
+        headers=headers or None, generations=args.generations,
+    )
+    store.save()
+    _print_findings(new)
+
+
 def cmd_report(args):
     scope = Scope.load(args.scope)
     store = Store(args.state)
@@ -137,6 +154,13 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--apk", required=True, help="путь к .apk")
     m.add_argument("--package", default="", help="идентификатор пакета (com.example.app)")
     m.set_defaults(fn=cmd_mobile)
+    l = sub.add_parser("llm", help="red-team prompt-injection по LLM-эндпоинту (agentstrike)")
+    l.add_argument("--target", required=True, help="URL LLM/агентного API (в scope)")
+    l.add_argument("--field", default="message", help="имя поля запроса с промптом (по умолч. message)")
+    l.add_argument("--response-path", default="response", help="путь к ответу в JSON, напр. choices.0.text")
+    l.add_argument("--header", action="append", help='HTTP-заголовок, напр. "Authorization: Bearer TOKEN"')
+    l.add_argument("--generations", type=int, default=3, help="поколений генетического поиска")
+    l.set_defaults(fn=cmd_llm)
     sub.add_parser("report", help="сгенерировать отчёт").set_defaults(fn=cmd_report)
     r = sub.add_parser("run", help="полный конвейер + отчёт")
     r.add_argument("--target", action="append", help="явные URL для web/secrets")

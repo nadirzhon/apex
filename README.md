@@ -16,6 +16,7 @@
 - **Web** — неразрушающие проверки: заголовки безопасности, флаги cookie, TLS/сертификаты, курируемый список экспонированных файлов (`.git`, `.env`, actuator, swagger…).
 - **Secrets** — поиск утёкших ключей в HTML/JS (AWS/GCP/Slack/Stripe/JWT/приватные ключи), значения в отчёте маскируются.
 - **Mobile** — статический анализ APK (офлайн): разрешения, cleartext-трафик, зашитые секреты.
+- **LLM / AI red-team** — авторизованный prompt-injection по LLM/агентным эндпоинтам через мост к [agentstrike](https://github.com/nadirzhon/agentstrike) (генетический фаззер). Доказательство — canary-маркер (OWASP LLM01), неразрушающе. **Это единственный класс, где даже гиганты сейчас реально уязвимы** — их AI-продукты молоды.
 - **CVSS 3.1** — собственный калькулятор base score (без зависимостей).
 - **Отчёты** — профессиональный репорт под программу: Markdown + HTML, доказательства, ремедиация, серьёзность по CVSS.
 - **Мост MCP** — движок как MCP-инструменты; Claude ведёт энгейджмент разговором в границах scope.
@@ -31,6 +32,12 @@ pip install -e '.[mcp]'             # + мост MCP (fastmcp)
 ```
 
 Требуется Python ≥ 3.10.
+
+Модуль `llm` дополнительно требует [agentstrike](https://github.com/nadirzhon/agentstrike): установите пакетом или клонируйте рядом (`~/Desktop/agentstrike`) — модуль подхватит его сам (или задайте `APEX_AGENTSTRIKE_PATH`).
+
+### Уровень: с кем это реально конкурирует
+
+Честно: ни один инструмент не «выигрывает» баги уровня протокола/крипты/RE (Telegram, ядро мессенджеров) — это ручная работа мирового топа. APEX силён в другом: широкий охват веб/мобильных программ **и** фронт **AI-безопасности** (`llm`-модуль), где поле молодое и автоматизация с генетическим фаззингом даёт настоящий edge против крупных вендоров, запускающих AI-bounty.
 
 ## Scope-файл
 
@@ -55,6 +62,9 @@ apex --scope program.json --i-am-authorized run      # recon → web → secrets
 apex --scope program.json --i-am-authorized web --target https://api.example.com
 apex --scope program.json --i-am-authorized secrets --target https://example.com
 apex --scope program.json --i-am-authorized mobile --apk app.apk --package com.example.mobile
+apex --scope program.json --i-am-authorized llm --target https://api.example.com/chat \
+     --field message --response-path choices.0.message.content \
+     --header "Authorization: Bearer TOKEN" --generations 4
 apex --scope program.json report                     # собрать отчёт из находок
 ```
 
@@ -83,7 +93,8 @@ apex/
 │   ├── recon.py     DNS + HTTP fingerprint in-scope хостов
 │   ├── web.py       заголовки, TLS, экспонированные файлы
 │   ├── secrets.py   утёкшие ключи в web-контенте
-│   └── mobile.py    статический анализ APK
+│   ├── mobile.py    статический анализ APK
+│   └── llm.py       red-team prompt-injection (мост к agentstrike)
 ├── report.py        отчёты Markdown + HTML
 ├── cli.py           CLI-оркестратор
 └── mcp_server.py    мост MCP
