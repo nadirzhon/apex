@@ -113,3 +113,18 @@ def test_arsenal_have_detects_tools():
     # nuclei/sqlmap установлены в этом окружении
     assert arsenal.have("sqlmap") is True
     assert arsenal.have("nonexistent_tool_xyz") is False
+
+
+# ── kali: мост к контейнеру под гейтом ───────────────────────────────────
+def test_kali_gate():
+    from apex.modules import kali
+    import pytest as _p
+    with _p.raises(PermissionError):
+        kali.run_ffuf(_scope(authorized=False), Store("/tmp/x.json"), False, "http://x")
+    with _p.raises(PermissionError):
+        kali.run_nuclei(_scope(authorized=False), Store("/tmp/x.json"), False, "http://x")
+
+
+def test_kali_available_is_bool():
+    from apex.modules import kali
+    assert isinstance(kali.kali_available(), bool)

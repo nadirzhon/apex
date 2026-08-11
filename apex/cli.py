@@ -15,7 +15,7 @@ from .http import SafeHTTP
 from .report import write as write_report
 from .scope import Scope
 from .store import Store
-from .modules import recon, web, secrets, mobile, llm, webvuln, arsenal
+from .modules import recon, web, secrets, mobile, llm, webvuln, arsenal, kali
 from . import giants as giants_mod
 
 BANNER = (
@@ -142,6 +142,28 @@ def cmd_arsenal(args):
     _print_findings(new)
 
 
+def cmd_kali(args):
+    scope, store, http = _load(args)
+    if not kali.kali_available():
+        print("[kali] образ apex-kali не найден. Собери: docker build -t apex-kali ~/Desktop/apex-kali")
+        return
+    t = args.tool
+    print(f"[kali] {t} по {args.target} (через apex-kali контейнер, в рамках scope) …")
+    if t == "subfinder":
+        subs = kali.run_subfinder(scope, store, args.i_am_authorized, args.target)
+        store.save()
+        print(f"  поддоменов: {len(subs)}")
+        for s in subs[:40]:
+            print(f"    {s}")
+        return
+    fn = {"ffuf": kali.run_ffuf, "nuclei": kali.run_nuclei, "sqlmap": kali.run_sqlmap}.get(t)
+    if not fn:
+        print(f"неизвестный инструмент: {t}"); return
+    new = fn(scope, store, args.i_am_authorized, args.target)
+    store.save()
+    _print_findings(new)
+
+
 def cmd_advise(args):
     from .advisor import advise
     store = Store(args.state)
@@ -221,6 +243,10 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--tool", required=True, choices=["nuclei", "sqlmap"], help="какой инструмент запустить")
     a.add_argument("--target", required=True, help="URL в scope")
     a.set_defaults(fn=cmd_arsenal)
+    k = sub.add_parser("kali", help="полный арсенал через apex-kali контейнер (subfinder/ffuf/nuclei/sqlmap)")
+    k.add_argument("--tool", required=True, choices=["subfinder", "ffuf", "nuclei", "sqlmap"])
+    k.add_argument("--target", required=True, help="домен (subfinder) или URL в scope")
+    k.set_defaults(fn=cmd_kali)
     g = sub.add_parser("giants", help="каталог гигантов + охота всем арсеналом")
     g.add_argument("--hunt", help="ключ гиганта (anthropic/openai/microsoft/xai/google) — навести арсенал")
     g.set_defaults(fn=cmd_giants)
