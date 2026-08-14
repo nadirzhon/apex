@@ -1,8 +1,8 @@
 """ASCEND pipeline: scope -> model -> invariants -> hypotheses -> evidence.
 
-The pipeline remains fail-closed. The Omega foundation adds a semantic Digital Twin,
-compiled security invariants, hypothesis confidence and an evidence ledger without
-changing the existing three-way differential confirmation primitive.
+The pipeline remains fail-closed. Omega adds a semantic Digital Twin, immutable
+observations with provenance, causal state modeling, falsification-first planning,
+and replayable evidence without weakening scope authorization.
 """
 from __future__ import annotations
 
@@ -12,10 +12,14 @@ from ..models import Finding
 from ..scope import Scope
 from ..store import Store
 from .awm import AWM, Node, Priv
+from .causal_model import ProvenanceWorldModel
 from .court import AdversarialCourt, CourtDecision
 from .differential import Resp, three_way
 from .digital_twin import DigitalTwin
+from .evidence_graph import EvidenceGraph, EvidenceNode, ReplayManifest
+from .falsification import CheckResult, FalsificationPlan, FalsificationPlanner, FalsificationVerdict
 from .invariants import InvariantCompiler, SecurityInvariant
+from .observations import Observation, ObservationLog
 from .reasoning import Evidence, EvidenceLedger, Hypothesis, HypothesisEngine
 
 
@@ -31,12 +35,16 @@ class AscendPipeline:
         self.store = store
         self.awm = AWM()
         self.twin = DigitalTwin()
+        self.observations = ObservationLog()
+        self.world = ProvenanceWorldModel(self.observations)
+        self.evidence_graph = EvidenceGraph(self.observations)
         self.invariants: list[SecurityInvariant] = []
         self.hypotheses: dict[str, Hypothesis] = {}
         self.evidence: dict[str, EvidenceLedger] = {}
         self._compiler = InvariantCompiler()
         self._reasoner = HypothesisEngine()
         self._court = AdversarialCourt()
+        self._falsifier = FalsificationPlanner()
 
     def build_awm(self, endpoints: list[dict]) -> AWM:
         for ep in endpoints:
@@ -56,6 +64,11 @@ class AscendPipeline:
         self.invariants = self._compiler.compile(self.twin)
         return self.awm
 
+    def record_observation(self, observation: Observation) -> Observation:
+        """Record an immutable fact after enforcing target scope."""
+        self.scope.guard(observation.target)
+        return self.world.ingest(observation)
+
     def compile_invariants(self) -> list[SecurityInvariant]:
         self.invariants = self._compiler.compile(self.twin)
         return list(self.invariants)
@@ -72,6 +85,19 @@ class AscendPipeline:
             dedup[h.id] = h
         self.hypotheses = dedup
         return list(dedup.values())
+
+    def falsification_plan(self, hypothesis_id: str) -> FalsificationPlan:
+        return self._falsifier.plan(self.hypotheses[hypothesis_id])
+
+    def evaluate_falsification(self, hypothesis_id: str,
+                               results: list[CheckResult]) -> FalsificationVerdict:
+        return self._falsifier.evaluate(self.falsification_plan(hypothesis_id), results)
+
+    def assemble_replay_evidence(self, hypothesis_id: str,
+                                 nodes: list[EvidenceNode]) -> ReplayManifest:
+        if hypothesis_id not in self.hypotheses:
+            raise KeyError(hypothesis_id)
+        return self.evidence_graph.build(hypothesis_id, nodes)
 
     def validate(self, hyps: list[Hypothesis], fetch: Fetcher,
                  gatekeeper: Gatekeeper | None = None) -> list[Finding]:
