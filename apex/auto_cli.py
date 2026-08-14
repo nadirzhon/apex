@@ -32,7 +32,7 @@ def main(argv: list[str] | None = None) -> int:
     except PermissionError as exc:
         print(f"[GATE REFUSED] {exc}", file=sys.stderr)
         return 3
-    except (FileNotFoundError, ValueError) as exc:
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
         return 2
 
