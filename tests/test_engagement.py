@@ -4,6 +4,8 @@ import tempfile
 from pathlib import Path
 
 from apex.engagement import AccountRef, EngagementManifest
+from apex.models import Finding
+from apex.quality import check as quality_check
 from apex.scope import Scope
 
 
@@ -21,6 +23,19 @@ def _raises(exc_type, fn, contains=""):
             assert contains in str(exc)
         return
     raise AssertionError(f"expected {exc_type.__name__}")
+
+
+def _finding(**overrides):
+    data = {
+        "title": "Controlled test finding",
+        "severity": "high",
+        "target": "https://allowed.example/api",
+        "module": "test",
+        "description": "Controlled validation produced a reproducible result.",
+        "evidence": "status=200; control=403; reproducible=true",
+    }
+    data.update(overrides)
+    return Finding(**data)
 
 
 def test_manifest_requires_targets():
@@ -75,6 +90,27 @@ def test_account_headers_resolve_from_env():
             os.environ.pop("APEX_TEST_HEADERS", None)
         else:
             os.environ["APEX_TEST_HEADERS"] = old
+
+
+def test_quality_accepts_in_scope_evidence():
+    scope = Scope(program="T", authorized=True, in_scope=["allowed.example"])
+    result = quality_check(scope, _finding(), "medium")
+    assert result.accepted
+
+
+def test_quality_rejects_out_of_scope_or_weak_evidence():
+    scope = Scope(program="T", authorized=True, in_scope=["allowed.example"])
+    outside = quality_check(scope, _finding(target="https://other.example/api"), "medium")
+    weak = quality_check(scope, _finding(evidence="ok"), "medium")
+    assert not outside.accepted and "outside scope" in outside.reasons
+    assert not weak.accepted and "missing reproducible evidence" in weak.reasons
+
+
+def test_quality_rejects_below_threshold():
+    scope = Scope(program="T", authorized=True, in_scope=["allowed.example"])
+    result = quality_check(scope, _finding(severity="low"), "medium")
+    assert not result.accepted
+    assert "below severity threshold" in result.reasons
 
 
 if __name__ == "__main__":
