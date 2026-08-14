@@ -16,6 +16,7 @@ from .http import SafeHTTP
 from .quality import check as quality_check
 from .report import write as write_report
 from .scope import Scope
+from .selfcheck import assert_healthy
 from .store import Store
 from .modules import recon, web, secrets, webvuln
 
@@ -76,6 +77,7 @@ def _write_quality(scope: Scope, store: Store, manifest: EngagementManifest) -> 
 
 def run(manifest_path: str, authorized: bool) -> AutopilotResult:
     """Run one complete authorized engagement from a declarative manifest."""
+    assert_healthy()
     manifest = EngagementManifest.load(manifest_path)
     scope = Scope.load(manifest.scope_file)
     scope.assert_ready(authorized)
