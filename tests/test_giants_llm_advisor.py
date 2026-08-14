@@ -108,9 +108,13 @@ def test_arsenal_gate():
         arsenal.run_sqlmap(_scope(authorized=False), Store("/tmp/x.json"), False, ["http://x"])
 
 
-def test_arsenal_have_detects_tools():
+def test_arsenal_have_detects_tools(monkeypatch):
     from apex.modules import arsenal
-    # nuclei/sqlmap установлены в этом окружении
+
+    def fake_which(tool):
+        return f"/usr/bin/{tool}" if tool == "sqlmap" else None
+
+    monkeypatch.setattr(arsenal.shutil, "which", fake_which)
     assert arsenal.have("sqlmap") is True
     assert arsenal.have("nonexistent_tool_xyz") is False
 
