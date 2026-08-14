@@ -6,12 +6,14 @@ creates accounts, bypasses the scope gate, or stores account secrets in files.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
 from .advisor import advise
 from .engagement import EngagementManifest
 from .http import SafeHTTP
+from .quality import check as quality_check
 from .report import write as write_report
 from .scope import Scope
 from .store import Store
@@ -27,7 +29,10 @@ class AutopilotResult:
     report_markdown: str
     report_html: str
     advisor_path: str
+    quality_path: str
     state_file: str
+    accepted_findings: int = 0
+    rejected_findings: int = 0
     har_replays: int = 0
 
 
@@ -38,6 +43,35 @@ def _targets(store: Store, manifest: EngagementManifest) -> list[str]:
         if value not in ordered:
             ordered.append(value)
     return ordered
+
+
+def _write_quality(scope: Scope, store: Store, manifest: EngagementManifest) -> tuple[str, int, int]:
+    rows = []
+    accepted = 0
+    for finding in store.findings:
+        result = quality_check(scope, finding, manifest.policy.minimum_report_severity)
+        accepted += int(result.accepted)
+        rows.append({
+            "title": finding.title,
+            "target": finding.target,
+            "severity": finding.severity,
+            "accepted": result.accepted,
+            "reasons": list(result.reasons),
+        })
+    rejected = len(rows) - accepted
+    path = Path(manifest.out_dir) / "quality.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({
+            "program": scope.program,
+            "minimum_severity": manifest.policy.minimum_report_severity,
+            "accepted": accepted,
+            "rejected": rejected,
+            "results": rows,
+        }, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return str(path), accepted, rejected
 
 
 def run(manifest_path: str, authorized: bool) -> AutopilotResult:
@@ -77,8 +111,6 @@ def run(manifest_path: str, authorized: bool) -> AutopilotResult:
             har_replays += 1
             store.save()
 
-    # Active validation is a separate, explicit policy gate. It is never enabled
-    # merely because the user asked for an autonomous run.
     if "webvuln" in manifest.modules:
         for target in manifest.targets:
             webvuln.run(
@@ -95,6 +127,7 @@ def run(manifest_path: str, authorized: bool) -> AutopilotResult:
     advisor_path = Path(manifest.out_dir) / "advisor.txt"
     advisor_path.parent.mkdir(parents=True, exist_ok=True)
     advisor_path.write_text(advise(store), encoding="utf-8")
+    quality_path, accepted, rejected = _write_quality(scope, store, manifest)
 
     return AutopilotResult(
         engagement=manifest.name,
@@ -104,6 +137,9 @@ def run(manifest_path: str, authorized: bool) -> AutopilotResult:
         report_markdown=md,
         report_html=ht,
         advisor_path=str(advisor_path),
+        quality_path=quality_path,
         state_file=manifest.state_file,
+        accepted_findings=accepted,
+        rejected_findings=rejected,
         har_replays=har_replays,
     )
