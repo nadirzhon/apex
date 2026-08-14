@@ -14,6 +14,7 @@ mcp = ["fastmcp>=2.0"]
 
 [project.scripts]
 apex = "apex.cli:main"
+apex-auto = "apex.auto_cli:main"
 
 [project.urls]
 Homepage = "https://github.com/nadirzhon/apex"

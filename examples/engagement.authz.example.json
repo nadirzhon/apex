@@ -1,0 +1,28 @@
+{
+  "name": "Example Corp authorization review",
+  "scope_file": "program.example.json",
+  "targets": [
+    "https://example.com"
+  ],
+  "modules": [
+    "recon",
+    "web",
+    "secrets",
+    "ascend_har"
+  ],
+  "har_files": [
+    "account-a.har"
+  ],
+  "accounts": {
+    "attacker": {
+      "headers_env": "APEX_ATTACKER_HEADERS"
+    }
+  },
+  "policy": {
+    "active_web_validation": false,
+    "crawl_active_targets": false,
+    "minimum_report_severity": "medium"
+  },
+  "state_file": ".apex/authz-state.json",
+  "out_dir": ".apex/authz-engagement"
+}

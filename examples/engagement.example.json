@@ -1,0 +1,21 @@
+{
+  "name": "Example Corp authorized bounty",
+  "scope_file": "program.example.json",
+  "targets": [
+    "https://example.com"
+  ],
+  "modules": [
+    "recon",
+    "web",
+    "secrets"
+  ],
+  "har_files": [],
+  "accounts": {},
+  "policy": {
+    "active_web_validation": false,
+    "crawl_active_targets": false,
+    "minimum_report_severity": "medium"
+  },
+  "state_file": ".apex/example-state.json",
+  "out_dir": ".apex/example-engagement"
+}
