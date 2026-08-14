@@ -1,8 +1,8 @@
 """ASCEND pipeline: scope -> model -> invariants -> hypotheses -> evidence.
 
 The pipeline remains fail-closed. Omega adds a semantic Digital Twin, immutable
-observations with provenance, causal state modeling, falsification-first planning,
-and replayable evidence without weakening scope authorization.
+observations with provenance, causal state modeling, independent reasoning votes,
+falsification-first planning, and replayable evidence without weakening scope.
 """
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from ..scope import Scope
 from ..store import Store
 from .awm import AWM, Node, Priv
 from .causal_model import ProvenanceWorldModel
+from .council import CouncilDecision, ReasoningCouncil
 from .court import AdversarialCourt, CourtDecision
 from .differential import Resp, three_way
 from .digital_twin import DigitalTwin
@@ -43,6 +44,7 @@ class AscendPipeline:
         self.evidence: dict[str, EvidenceLedger] = {}
         self._compiler = InvariantCompiler()
         self._reasoner = HypothesisEngine()
+        self._council = ReasoningCouncil()
         self._court = AdversarialCourt()
         self._falsifier = FalsificationPlanner()
 
@@ -85,6 +87,11 @@ class AscendPipeline:
             dedup[h.id] = h
         self.hypotheses = dedup
         return list(dedup.values())
+
+    def deliberate(self, hypothesis_id: str) -> CouncilDecision:
+        return self._council.deliberate(
+            self.hypotheses[hypothesis_id], self.awm, self.twin, self.world
+        )
 
     def falsification_plan(self, hypothesis_id: str) -> FalsificationPlan:
         return self._falsifier.plan(self.hypotheses[hypothesis_id])
