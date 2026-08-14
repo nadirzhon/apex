@@ -12,6 +12,7 @@ from ..models import Finding
 from ..scope import Scope
 from ..store import Store
 from .awm import AWM, Node, Priv
+from .court import AdversarialCourt, CourtDecision
 from .differential import Resp, three_way
 from .digital_twin import DigitalTwin
 from .invariants import InvariantCompiler, SecurityInvariant
@@ -35,6 +36,7 @@ class AscendPipeline:
         self.evidence: dict[str, EvidenceLedger] = {}
         self._compiler = InvariantCompiler()
         self._reasoner = HypothesisEngine()
+        self._court = AdversarialCourt()
 
     def build_awm(self, endpoints: list[dict]) -> AWM:
         for ep in endpoints:
@@ -114,3 +116,26 @@ class AscendPipeline:
         for finding in findings:
             self.store.add_finding(finding)
         return findings
+
+    def review(
+        self,
+        hypothesis_id: str,
+        *,
+        independently_reproduced: bool,
+        skeptic_objections: list[str] | None = None,
+    ) -> CourtDecision:
+        """Run the publication-quality adversarial evidence gate for one hypothesis."""
+        hypothesis = self.hypotheses[hypothesis_id]
+        ledger = self.evidence.get(
+            hypothesis_id,
+            EvidenceLedger(hypothesis.id, prior=hypothesis.confidence),
+        )
+        node = self.awm.nodes.get(hypothesis.node_key)
+        target = node.url if node else hypothesis.node_key
+        return self._court.review(
+            hypothesis,
+            ledger,
+            scope_ok=self.scope.in_scope_target(target),
+            independently_reproduced=independently_reproduced,
+            skeptic_objections=skeptic_objections,
+        )
