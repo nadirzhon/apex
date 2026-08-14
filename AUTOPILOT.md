@@ -1,7 +1,8 @@
 # APEX Autopilot
 
 APEX Autopilot connects the existing scope gate, discovery modules, controlled
-account replay, report generator and advisor into one declarative engagement.
+account replay, ASCEND reasoning, quality checks, report generator and advisor
+into one declarative engagement.
 
 It is intended only for bug-bounty / VDP / pentest targets you are explicitly
 authorized to test. The existing `authorized:true` scope field and
@@ -69,6 +70,10 @@ For `ascend_har`, the baseline request/session comes from your HAR capture and
 `accounts.attacker` supplies the second controlled test account. Only your own
 accounts should be used.
 
+The HAR is also parsed offline into normalized endpoint shapes. Those endpoints
+feed the existing Digital Twin, invariant compiler and hypothesis engine before
+controlled replay begins.
+
 ## 4. Run
 
 Installed entrypoint:
@@ -86,6 +91,8 @@ python -m apex.auto_cli --manifest examples/engagement.example.json --i-am-autho
 Outputs are written to the manifest's `out_dir` and `state_file`:
 
 - `state.json` — discovered assets and findings
+- `hypotheses.json` — offline ASCEND hypotheses derived from HAR endpoint semantics
+- `quality.json` — accepted/rejected result quality decisions
 - `report.md` — Markdown report
 - `report.html` — HTML report
 - `advisor.txt` — prioritized next-action / evidence guidance
@@ -95,24 +102,43 @@ Outputs are written to the manifest's `out_dir` and `state_file`:
 - `recon` — scope-derived asset discovery
 - `web` — non-destructive web checks
 - `secrets` — exposed-secret discovery with existing masking behavior
-- `ascend_har` — controlled authorization replay from a HAR using a second test account
+- `ascend_har` — offline hypothesis generation plus controlled authorization replay using a second test account
 - `webvuln` — active validation; rejected unless `policy.active_web_validation=true`
 
 Active validation remains an explicit local policy decision because bug-bounty
 program rules differ. Scope authorization alone does not imply that every active
 technique is permitted.
 
+## Autonomous quality gate
+
+Every stored result is checked offline before the run finishes. The gate rejects
+results that are outside scope, below the configured severity threshold, missing
+a description, or missing reproducible evidence. Decisions are written to
+`quality.json`; the raw state remains preserved for auditability.
+
+## Preflight / self-health
+
+Before any engagement network work, Autopilot runs an offline self-check that:
+
+- imports core modules,
+- confirms operator authorization is fail-closed,
+- confirms an out-of-scope target is rejected,
+- confirms a configured in-scope target is recognized.
+
+A failed preflight stops the run before engagement traffic.
+
 ## Fail-closed properties
 
 Before network work Autopilot:
 
-1. loads the referenced scope,
-2. requires `authorized:true`,
-3. requires `--i-am-authorized`,
-4. guards every configured target,
-5. refuses unknown modules,
-6. refuses active validation unless it was explicitly enabled in the engagement policy,
-7. resolves account secrets only from environment variables at runtime.
+1. runs the offline core preflight,
+2. loads the referenced scope,
+3. requires `authorized:true`,
+4. requires `--i-am-authorized`,
+5. guards every configured target,
+6. refuses unknown modules,
+7. refuses active validation unless it was explicitly enabled in the engagement policy,
+8. resolves account secrets only from environment variables at runtime.
 
 The goal is a one-command engagement after you have supplied the program rules,
 scope and your controlled test-account material — not a bypass around those rules.
