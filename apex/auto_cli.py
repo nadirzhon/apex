@@ -43,8 +43,10 @@ def main(argv: list[str] | None = None) -> int:
         f"  quality: accepted={result.accepted_findings} "
         f"rejected={result.rejected_findings}"
     )
+    print(f"  hypotheses: {result.hypotheses}")
     print(f"  HAR replays: {result.har_replays}")
     print(f"  state: {result.state_file}")
+    print(f"  hypotheses: {result.hypotheses_path}")
     print(f"  report: {result.report_markdown} | {result.report_html}")
     print(f"  advisor: {result.advisor_path}")
     print(f"  quality: {result.quality_path}")
