@@ -39,10 +39,15 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[autopilot] {result.engagement}")
     print(f"  assets: {result.assets}")
     print(f"  findings: {result.findings} {result.severity}")
+    print(
+        f"  quality: accepted={result.accepted_findings} "
+        f"rejected={result.rejected_findings}"
+    )
     print(f"  HAR replays: {result.har_replays}")
     print(f"  state: {result.state_file}")
     print(f"  report: {result.report_markdown} | {result.report_html}")
     print(f"  advisor: {result.advisor_path}")
+    print(f"  quality: {result.quality_path}")
     return 0
 
 
