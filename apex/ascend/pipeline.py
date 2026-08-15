@@ -1,9 +1,9 @@
 """ASCEND pipeline: scope -> model -> invariants -> hypotheses -> evidence.
 
 The pipeline remains fail-closed. Omega adds a semantic Digital Twin, immutable
-observations with provenance, causal state modeling, browser-derived discovery,
-independent reasoning votes, multi-step chain reasoning, falsification-first
-planning, and replayable evidence without weakening scope.
+observations with provenance, causal state modeling, browser/JavaScript-derived
+discovery, independent reasoning votes, multi-step chain reasoning,
+falsification-first planning, and replayable evidence without weakening scope.
 """
 from __future__ import annotations
 
@@ -70,16 +70,17 @@ class AscendPipeline:
         return self.awm
 
     def ingest_browser_inventory(self, inventory) -> AWM:
-        """Merge same-origin browser observations into AWM/Digital Twin.
-
-        The inventory object is intentionally duck-typed so browser support remains
-        an optional dependency. Every discovered endpoint still passes the normal
-        scope guard inside ``build_awm``.
-        """
         return self.build_awm(inventory.endpoint_records())
 
+    def ingest_js_analyses(self, analyzer, analyses) -> AWM:
+        """Merge passive static JavaScript route hints into the model.
+
+        Unknown HTTP methods remain UNKNOWN rather than being treated as safe GETs.
+        Every URL still passes the normal scope guard in ``build_awm``.
+        """
+        return self.build_awm(analyzer.endpoint_records(analyses))
+
     def record_observation(self, observation: Observation) -> Observation:
-        """Record an immutable fact after enforcing target scope."""
         self.scope.guard(observation.target)
         return self.world.ingest(observation)
 
@@ -88,7 +89,6 @@ class AscendPipeline:
         return list(self.invariants)
 
     def chain_candidates(self) -> list[ChainCandidate]:
-        """Return ranked evidence-grounded multi-step causal paths."""
         return self._chain_reasoner.search(self.world)
 
     def hypothesize(self, reasoner: Reasoner | None = None) -> list[Hypothesis]:
@@ -151,9 +151,7 @@ class AscendPipeline:
                 continue
             findings.append(Finding(
                 title=f"{h.klass}: {h.node_key} (параметр {h.param})",
-                severity="high",
-                target=url,
-                module="ascend",
+                severity="high", target=url, module="ascend",
                 description=(h.description + " Подтверждено контролируемым "
                              "3-way differential validation."),
                 evidence=(verdict.as_evidence()
@@ -167,17 +165,11 @@ class AscendPipeline:
             self.store.add_finding(finding)
         return findings
 
-    def review(
-        self,
-        hypothesis_id: str,
-        *,
-        independently_reproduced: bool,
-        skeptic_objections: list[str] | None = None,
-    ) -> CourtDecision:
+    def review(self, hypothesis_id: str, *, independently_reproduced: bool,
+               skeptic_objections: list[str] | None = None) -> CourtDecision:
         hypothesis = self.hypotheses[hypothesis_id]
         ledger = self.evidence.get(
-            hypothesis_id,
-            EvidenceLedger(hypothesis.id, prior=hypothesis.confidence),
+            hypothesis_id, EvidenceLedger(hypothesis.id, prior=hypothesis.confidence)
         )
         node = self.awm.nodes.get(hypothesis.node_key)
         target = node.url if node else hypothesis.node_key
