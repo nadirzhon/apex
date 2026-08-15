@@ -1,8 +1,7 @@
 """Loopback-only autonomous web lab worker for controlled security benchmarks.
 
-This module is intentionally impossible to point at production hosts. It accepts
-only localhost / loopback targets and implements a bounded black-box loop useful
-for isolated Docker challenges.
+The worker is deliberately restricted to localhost/loopback. It performs bounded
+black-box discovery for isolated Docker/CTF targets and records replayable evidence.
 """
 from __future__ import annotations
 
@@ -24,6 +23,7 @@ _FLAG_PATTERNS = (
     re.compile(r"(?i)\bflag[\s:=_-]+([A-Za-z0-9_./+\-=]{8,256})"),
 )
 _MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
+_ID_CONTEXT = re.compile(r"(?i)(?:order(?:\s+id)?|trade(?:\s+id)?|\bid\b)[^0-9]{0,24}(\d{1,10})")
 
 
 @dataclass(frozen=True)
@@ -31,9 +31,13 @@ class Form:
     action: str
     method: str
     fields: tuple[tuple[str, str], ...]
+    values: tuple[tuple[str, str], ...] = ()
 
     def field_names(self) -> tuple[str, ...]:
         return tuple(name for name, _ in self.fields if name)
+
+    def value_map(self) -> dict[str, str]:
+        return dict(self.values)
 
 
 @dataclass(frozen=True)
@@ -60,6 +64,7 @@ class LabSolveResult:
     evidence: list[ResponseEvidence] = field(default_factory=list)
     root_forms: list[dict] = field(default_factory=list)
     auth_transitions: list[dict] = field(default_factory=list)
+    observations: list[dict] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
     def to_json(self) -> str:
@@ -75,6 +80,7 @@ class _PageParser(HTMLParser):
         self._form_action = ""
         self._form_method = "GET"
         self._fields: list[tuple[str, str]] | None = None
+        self._values: list[tuple[str, str]] | None = None
         self._in_title = False
         self.title_parts: list[str] = []
 
@@ -91,19 +97,28 @@ class _PageParser(HTMLParser):
             self._form_action = urllib.parse.urljoin(self.base, data.get("action") or self.base)
             self._form_method = (data.get("method") or "GET").upper()
             self._fields = []
+            self._values = []
         elif tag in {"input", "select", "textarea", "button"} and self._fields is not None:
             name = data.get("name") or ""
             typ = (data.get("type") or tag).lower()
             if name:
                 self._fields.append((name, typ))
+                if "value" in data and self._values is not None:
+                    self._values.append((name, data.get("value") or ""))
         elif tag == "title":
             self._in_title = True
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
         if tag == "form" and self._fields is not None:
-            self.forms.append(Form(self._form_action, self._form_method, tuple(self._fields)))
+            self.forms.append(Form(
+                self._form_action,
+                self._form_method,
+                tuple(self._fields),
+                tuple(self._values or ()),
+            ))
             self._fields = None
+            self._values = None
         elif tag == "title":
             self._in_title = False
 
@@ -244,6 +259,17 @@ class LocalLabWebAgent:
             flag=flag,
         )
         self.result.evidence.append(ev)
+        self.result.observations.append({
+            "method": method,
+            "url": final_url,
+            "title": parser.title,
+            "links": sorted(set(parser.links))[:50],
+            "forms": [
+                {"action": f.action, "method": f.method, "fields": list(f.fields), "values": list(f.values)}
+                for f in parser.forms
+            ][:20],
+            "numeric_hints": sorted(set(_ID_CONTEXT.findall(body)))[:50],
+        })
         if flag:
             self.result.solved = True
             self.result.flag = flag
@@ -251,17 +277,17 @@ class LocalLabWebAgent:
 
     @staticmethod
     def _login_payload(form: Form, username: str, password: str) -> dict[str, str]:
-        payload: dict[str, str] = {}
+        payload: dict[str, str] = form.value_map()
         for name, typ in form.fields:
             lower = name.lower()
             if typ == "password" or "pass" in lower:
                 payload[name] = password
             elif lower in {"username", "user", "email", "login"} or "user" in lower or "login" in lower:
                 payload[name] = username
-            elif typ in {"submit", "button"}:
+            elif typ in {"submit", "button"} and not payload.get(name):
                 payload[name] = "Login"
             else:
-                payload[name] = ""
+                payload.setdefault(name, "")
         return payload
 
     @staticmethod
@@ -276,7 +302,6 @@ class LocalLabWebAgent:
         return False
 
     def _authenticate(self, login: Form, root_ev: ResponseEvidence) -> _PageParser | None:
-        # One-step username/password form.
         if _has_password_field(login):
             for username, password in default_credentials():
                 body, parser, ev = self._request("POST", login.action, self._login_payload(login, username, password))
@@ -288,9 +313,6 @@ class LocalLabWebAgent:
                     return parser
             return None
 
-        # Two-step username -> password flows.  A transition to a password form is
-        # treated as evidence that the username exists; password trials are then
-        # limited to the tiny default-password corpus for that username.
         for username in _usernames():
             body, parser, user_ev = self._request("POST", login.action, self._login_payload(login, username, ""))
             password_form = _password_form(parser.forms)
@@ -353,11 +375,30 @@ class LocalLabWebAgent:
                     candidates.add(urllib.parse.urlunparse(parsed._replace(path="/".join(s2))))
         return tuple(sorted(candidates))
 
+    @staticmethod
+    def _get_form_urls(forms: Iterable[Form]) -> tuple[str, ...]:
+        urls: set[str] = set()
+        for form in forms:
+            if form.method != "GET":
+                continue
+            values = form.value_map()
+            query = {k: v for k, v in values.items() if k}
+            parsed = urllib.parse.urlparse(form.action)
+            if query:
+                existing = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+                for key, value in query.items():
+                    existing[key] = [value]
+                url = urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(existing, doseq=True)))
+            else:
+                url = form.action
+            urls.add(url)
+        return tuple(sorted(urls))
+
     def solve(self) -> LabSolveResult:
         _, root_parser, root_ev = self._request("GET", self.target)
         self.result.pages += 1
         self.result.root_forms = [
-            {"action": f.action, "method": f.method, "fields": list(f.fields)}
+            {"action": f.action, "method": f.method, "fields": list(f.fields), "values": list(f.values)}
             for f in root_parser.forms
         ]
         if self.result.solved:
@@ -374,14 +415,14 @@ class LocalLabWebAgent:
 
         queue: list[str] = []
         seen: set[str] = {self.target}
-        for link in seed_parser.links:
+        for link in [*seed_parser.links, *self._get_form_urls(seed_parser.forms)]:
             if _same_origin(self.target, link):
                 queue.append(link)
 
         _, parser, _ = self._request("GET", self.target)
         if self.result.solved:
             return self.result
-        for link in parser.links:
+        for link in [*parser.links, *self._get_form_urls(parser.forms)]:
             if _same_origin(self.target, link):
                 queue.append(link)
 
@@ -394,7 +435,7 @@ class LocalLabWebAgent:
             self.result.pages += 1
             if self.result.solved:
                 return self.result
-            for child in parser.links:
+            for child in [*parser.links, *self._get_form_urls(parser.forms)]:
                 if _same_origin(self.target, child) and child not in seen:
                     queue.append(child)
             for mutated in self._numeric_mutations(url):
