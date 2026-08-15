@@ -1,0 +1,94 @@
+name: autonoma-browser-observe
+
+on:
+  push:
+    branches:
+      - agent/run-autonoma-browser-observe
+
+permissions:
+  contents: read
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install APEX browser observer
+        run: |
+          python -m pip install --disable-pip-version-check -e '.[browser]'
+          python -m playwright install --with-deps chromium
+      - name: Run authorized browser observation
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from apex.browser_observer import BrowserPolicy, PlaywrightObserver
+          from apex.scope import Scope
+
+          scope = Scope(
+              program='Autonoma owned-site browser observation',
+              authorized=True,
+              researcher='nadirzhon',
+              platform='owner-authorized',
+              rate_limit_rps=1.0,
+              in_scope=['autonoma.uk'],
+              out_of_scope=[],
+              rules='Observation only. Same-origin. No mutating HTTP methods. No form submission.'
+          )
+          observer = PlaywrightObserver(
+              scope,
+              'https://autonoma.uk/',
+              authorized=True,
+              policy=BrowserPolicy(max_pages=12, allow_cross_origin_subresources=False),
+          )
+          inventory = observer.observe()
+          report = {
+              'root': inventory.root,
+              'pages': [
+                  {
+                      'url': s.url,
+                      'title': s.title,
+                      'dom_sha256': s.dom_sha256,
+                      'fingerprint': s.fingerprint,
+                      'links': list(s.links),
+                      'forms': [
+                          {
+                              'action': f.action,
+                              'method': f.method,
+                              'mutating': f.mutating,
+                              'fields': [
+                                  {'name': x.name, 'type': x.field_type, 'required': x.required}
+                                  for x in f.fields
+                              ],
+                          }
+                          for f in s.forms
+                      ],
+                      'network': [e.__dict__ for e in s.network],
+                      'storage_keys': list(s.storage_keys),
+                  }
+                  for s in inventory.snapshots.values()
+              ],
+              'endpoint_records': inventory.endpoint_records(),
+          }
+          Path('autonoma-browser-observation.json').write_text(
+              json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8'
+          )
+          print(json.dumps({
+              'pages': len(report['pages']),
+              'endpoints': len(report['endpoint_records']),
+              'forms': sum(len(x['forms']) for x in report['pages']),
+              'blocked_requests': sum(
+                  1 for page in report['pages'] for e in page['network'] if e['blocked']
+              ),
+          }, indent=2))
+          PY
+      - name: Upload browser evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: autonoma-browser-observation
+          path: autonoma-browser-observation.json
+          retention-days: 30
