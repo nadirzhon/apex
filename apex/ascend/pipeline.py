@@ -1,9 +1,9 @@
 """ASCEND pipeline: scope -> model -> invariants -> hypotheses -> evidence.
 
 The pipeline remains fail-closed. Omega adds a semantic Digital Twin, immutable
-observations with provenance, causal state modeling, independent reasoning votes,
-multi-step chain reasoning, falsification-first planning, and replayable evidence
-without weakening scope.
+observations with provenance, causal state modeling, browser-derived discovery,
+independent reasoning votes, multi-step chain reasoning, falsification-first
+planning, and replayable evidence without weakening scope.
 """
 from __future__ import annotations
 
@@ -69,6 +69,15 @@ class AscendPipeline:
         self.invariants = self._compiler.compile(self.twin)
         return self.awm
 
+    def ingest_browser_inventory(self, inventory) -> AWM:
+        """Merge same-origin browser observations into AWM/Digital Twin.
+
+        The inventory object is intentionally duck-typed so browser support remains
+        an optional dependency. Every discovered endpoint still passes the normal
+        scope guard inside ``build_awm``.
+        """
+        return self.build_awm(inventory.endpoint_records())
+
     def record_observation(self, observation: Observation) -> Observation:
         """Record an immutable fact after enforcing target scope."""
         self.scope.guard(observation.target)
@@ -86,7 +95,6 @@ class AscendPipeline:
         if not self.invariants:
             self.compile_invariants()
         hyps = self._reasoner.generate(self.awm, self.twin, self.invariants)
-        # Chain hypotheses are generated only from already-recorded observations.
         hyps.extend(self._chain_reasoner.hypotheses(self.world))
         if reasoner:
             for node in self.awm.nodes.values():
@@ -166,7 +174,6 @@ class AscendPipeline:
         independently_reproduced: bool,
         skeptic_objections: list[str] | None = None,
     ) -> CourtDecision:
-        """Run the publication-quality adversarial evidence gate for one hypothesis."""
         hypothesis = self.hypotheses[hypothesis_id]
         ledger = self.evidence.get(
             hypothesis_id,

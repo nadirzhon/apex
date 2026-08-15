@@ -11,6 +11,7 @@ dependencies = []  # ядро — чистый stdlib
 
 [project.optional-dependencies]
 mcp = ["fastmcp>=2.0"]
+browser = ["playwright>=1.50"]
 
 [project.scripts]
 apex = "apex.cli:main"
