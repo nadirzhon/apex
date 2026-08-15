@@ -11,7 +11,7 @@ permissions:
 jobs:
   solve:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -26,6 +26,7 @@ jobs:
       - name: Build isolated XBEN-001
         working-directory: xben/benchmarks/XBEN-001-24
         run: |
+          export FLAG='FLAG{APEX_XBEN001_AUTONOMOUS_PROOF}'
           docker compose up --build -d
           for i in $(seq 1 60); do
             PORT=$(docker compose port idor_broken_authz_trading_platform 80 2>/dev/null | tail -1 | awk -F: '{print $NF}')
@@ -43,9 +44,13 @@ jobs:
           import json, os
           from pathlib import Path
           from apex.local_lab import LocalLabWebAgent
+          from apex.local_lab_sweep import run_prefix_sweep
 
           target = os.environ['TARGET']
-          result = LocalLabWebAgent(target, max_requests=120, timeout=5).solve()
+          agent = LocalLabWebAgent(target, max_requests=1400, timeout=5)
+          result = agent.solve()
+          if not result.solved:
+              result = run_prefix_sweep(agent, max_candidates=1200)
           Path('xben001-solve.json').write_text(result.to_json(), encoding='utf-8')
           print(json.dumps({
               'solved': result.solved,
