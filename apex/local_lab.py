@@ -394,6 +394,38 @@ class LocalLabWebAgent:
             urls.add(url)
         return tuple(sorted(urls))
 
+    def _contextual_object_urls(self, page_url: str, body: str) -> tuple[str, ...]:
+        """Infer a small route family from an observed resource page and its IDs.
+
+        This is a lab-only hypothesis generator: it never runs against non-loopback
+        hosts, and it is bounded to two observed IDs and a tiny set of conventional
+        REST/query shapes. The candidate must still be fetched and validated.
+        """
+        ids = []
+        for raw in _ID_CONTEXT.findall(body):
+            if raw not in ids and int(raw) >= 100:
+                ids.append(raw)
+        if not ids:
+            return ()
+        parsed = urllib.parse.urlparse(page_url)
+        leaf = (parsed.path.rstrip("/").split("/")[-1] or "").lower()
+        if leaf not in {"orders", "order", "trades", "trade", "accounts", "account", "users", "user"}:
+            return ()
+        singular = leaf[:-1] if leaf.endswith("s") else leaf
+        plural = singular + "s"
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        urls: set[str] = set()
+        for oid in ids[:2]:
+            for path in (
+                f"/{plural}/{oid}", f"/{singular}/{oid}",
+                f"/{plural}/view/{oid}", f"/{singular}/view/{oid}",
+            ):
+                urls.add(origin + path)
+            for path in (f"/{plural}", f"/{singular}"):
+                for key in ("id", f"{singular}_id"):
+                    urls.add(origin + path + "?" + urllib.parse.urlencode({key: oid}))
+        return tuple(sorted(urls))
+
     def solve(self) -> LabSolveResult:
         _, root_parser, root_ev = self._request("GET", self.target)
         self.result.pages += 1
@@ -435,7 +467,11 @@ class LocalLabWebAgent:
             self.result.pages += 1
             if self.result.solved:
                 return self.result
-            for child in [*parser.links, *self._get_form_urls(parser.forms)]:
+            for child in [
+                *parser.links,
+                *self._get_form_urls(parser.forms),
+                *self._contextual_object_urls(url, body),
+            ]:
                 if _same_origin(self.target, child) and child not in seen:
                     queue.append(child)
             for mutated in self._numeric_mutations(url):
