@@ -18,6 +18,8 @@ from html.parser import HTMLParser
 from http.cookiejar import CookieJar
 from typing import Iterable
 
+from .local_html_intel import extract_same_origin_hints
+
 _FLAG_PATTERNS = (
     re.compile(r"(?i)\b(?:flag|xben)[\s:=_-]*\{[^{}\r\n]{4,256}\}"),
     re.compile(r"(?i)\bflag[\s:=_-]+([A-Za-z0-9_./+\-=]{8,256})"),
@@ -248,6 +250,13 @@ class LocalLabWebAgent:
         body = raw.decode("utf-8", "replace")
         parser = _PageParser(final_url)
         parser.feed(body)
+        numeric_ids = tuple(dict.fromkeys(_ID_CONTEXT.findall(body)))
+        route_hints = extract_same_origin_hints(
+            self.target,
+            final_url,
+            body,
+            numeric_ids=numeric_ids,
+        )
         flag = _find_flag(body)
         ev = ResponseEvidence(
             method=method,
@@ -268,7 +277,8 @@ class LocalLabWebAgent:
                 {"action": f.action, "method": f.method, "fields": list(f.fields), "values": list(f.values)}
                 for f in parser.forms
             ][:20],
-            "numeric_hints": sorted(set(_ID_CONTEXT.findall(body)))[:50],
+            "numeric_hints": list(numeric_ids[:50]),
+            "route_hints": list(route_hints[:50]),
         })
         if flag:
             self.result.solved = True
@@ -395,12 +405,6 @@ class LocalLabWebAgent:
         return tuple(sorted(urls))
 
     def _contextual_object_urls(self, page_url: str, body: str) -> tuple[str, ...]:
-        """Infer a small route family from an observed resource page and its IDs.
-
-        This is a lab-only hypothesis generator: it never runs against non-loopback
-        hosts, and it is bounded to two observed IDs and a tiny set of conventional
-        REST/query shapes. The candidate must still be fetched and validated.
-        """
         ids = []
         for raw in _ID_CONTEXT.findall(body):
             if raw not in ids and int(raw) >= 100:
@@ -451,10 +455,15 @@ class LocalLabWebAgent:
             if _same_origin(self.target, link):
                 queue.append(link)
 
-        _, parser, _ = self._request("GET", self.target)
+        root_body, parser, _ = self._request("GET", self.target)
         if self.result.solved:
             return self.result
-        for link in [*parser.links, *self._get_form_urls(parser.forms)]:
+        root_ids = tuple(dict.fromkeys(_ID_CONTEXT.findall(root_body)))
+        for link in [
+            *parser.links,
+            *self._get_form_urls(parser.forms),
+            *extract_same_origin_hints(self.target, self.target, root_body, numeric_ids=root_ids),
+        ]:
             if _same_origin(self.target, link):
                 queue.append(link)
 
@@ -463,27 +472,34 @@ class LocalLabWebAgent:
             if url in seen or not _same_origin(self.target, url):
                 continue
             seen.add(url)
-            body, parser, _ = self._request("GET", url)
+            body, parser, ev = self._request("GET", url)
             self.result.pages += 1
             if self.result.solved:
                 return self.result
+            ids = tuple(dict.fromkeys(_ID_CONTEXT.findall(body)))
+            passive_hints = extract_same_origin_hints(self.target, url, body, numeric_ids=ids)
+            contextual = self._contextual_object_urls(url, body) if not passive_hints else ()
             for child in [
+                *passive_hints,
                 *parser.links,
                 *self._get_form_urls(parser.forms),
-                *self._contextual_object_urls(url, body),
+                *contextual,
             ]:
-                if _same_origin(self.target, child) and child not in seen:
+                if _same_origin(self.target, child) and child not in seen and child not in queue:
                     queue.append(child)
-            for mutated in self._numeric_mutations(url):
-                if self.result.requests >= self.max_requests:
-                    break
-                self.result.id_mutations += 1
-                mbody, _, _ = self._request("GET", mutated)
-                if self.result.solved:
-                    self.result.notes.append(f"flag reached by numeric object mutation from {url}")
-                    return self.result
-                if mbody != body and mutated not in seen:
-                    queue.append(mutated)
+            # Only fuzz a route after it has proved to exist. This prevents a guessed
+            # 404 shape from consuming most of the lab budget.
+            if ev.status < 400:
+                for mutated in self._numeric_mutations(url):
+                    if self.result.requests >= self.max_requests:
+                        break
+                    self.result.id_mutations += 1
+                    mbody, _, mev = self._request("GET", mutated)
+                    if self.result.solved:
+                        self.result.notes.append(f"flag reached by numeric object mutation from {url}")
+                        return self.result
+                    if mev.status < 400 and mbody != body and mutated not in seen and mutated not in queue:
+                        queue.append(mutated)
 
         if not self.result.solved:
             self.result.notes.append("bounded local exploration completed without flag")
