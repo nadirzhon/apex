@@ -59,6 +59,7 @@ class LabSolveResult:
     id_mutations: int = 0
     evidence: list[ResponseEvidence] = field(default_factory=list)
     root_forms: list[dict] = field(default_factory=list)
+    auth_transitions: list[dict] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
     def to_json(self) -> str:
@@ -147,14 +148,7 @@ def _find_flag(body: str) -> str:
     return ""
 
 
-def _looks_like_login(forms: Iterable[Form]) -> Form | None:
-    """Recognize bounded benchmark login forms.
-
-    Some intentionally vulnerable labs authenticate on a single username field;
-    requiring a password control caused APEX to miss those surfaces entirely.
-    A POST form with a user-like field is therefore enough to enter the tiny
-    default-account corpus. This remains loopback-only.
-    """
+def _user_form(forms: Iterable[Form]) -> Form | None:
     for form in forms:
         names = {x.lower() for x in form.field_names()}
         has_user = any(
@@ -166,6 +160,19 @@ def _looks_like_login(forms: Iterable[Form]) -> Form | None:
     return None
 
 
+def _password_form(forms: Iterable[Form]) -> Form | None:
+    for form in forms:
+        names = {x.lower() for x in form.field_names()}
+        types = {typ.lower() for _, typ in form.fields}
+        if form.method == "POST" and ("password" in types or any("pass" in x for x in names)):
+            return form
+    return None
+
+
+def _has_password_field(form: Form) -> bool:
+    return _password_form((form,)) is not None
+
+
 def default_credentials() -> tuple[tuple[str, str], ...]:
     return (
         ("admin", "admin"), ("admin", "password"), ("admin", "123456"),
@@ -175,6 +182,16 @@ def default_credentials() -> tuple[tuple[str, str], ...]:
         ("test", "test"), ("test", "password"),
         ("guest", "guest"), ("user", "user"), ("user", "password"),
     )
+
+
+def _usernames() -> tuple[str, ...]:
+    return tuple(dict.fromkeys(user for user, _ in default_credentials()))
+
+
+def _passwords_for(username: str) -> tuple[str, ...]:
+    preferred = [pwd for user, pwd in default_credentials() if user == username]
+    generic = [username, "password", "admin", "123456", "test", "demo", "guest"]
+    return tuple(dict.fromkeys([*preferred, *generic]))
 
 
 class LocalLabWebAgent:
@@ -248,15 +265,66 @@ class LocalLabWebAgent:
         return payload
 
     @staticmethod
-    def _auth_success(root_ev: ResponseEvidence, parser: _PageParser, forms: list[Form], body: str) -> bool:
+    def _authenticated(reference: ResponseEvidence, parser: _PageParser, body: str) -> bool:
         if _find_flag(body):
             return True
-        if _looks_like_login(forms) is None:
-            if parser.title and parser.title != root_ev.title:
+        if _user_form(parser.forms) is None and _password_form(parser.forms) is None:
+            if parser.title and parser.title != reference.title:
                 return True
             if re.search(r"(?i)\b(logout|sign out|dashboard|portfolio|account|trades?)\b", body):
                 return True
         return False
+
+    def _authenticate(self, login: Form, root_ev: ResponseEvidence) -> _PageParser | None:
+        # One-step username/password form.
+        if _has_password_field(login):
+            for username, password in default_credentials():
+                body, parser, ev = self._request("POST", login.action, self._login_payload(login, username, password))
+                self.result.auth_transitions.append({"username": username, "stage": "combined", "url": ev.url, "title": ev.title})
+                if self.result.solved or self._authenticated(root_ev, parser, body):
+                    self.result.authenticated = True
+                    self.result.credential_username = username
+                    self.result.notes.append(f"default credential accepted for username={username}")
+                    return parser
+            return None
+
+        # Two-step username -> password flows.  A transition to a password form is
+        # treated as evidence that the username exists; password trials are then
+        # limited to the tiny default-password corpus for that username.
+        for username in _usernames():
+            body, parser, user_ev = self._request("POST", login.action, self._login_payload(login, username, ""))
+            password_form = _password_form(parser.forms)
+            self.result.auth_transitions.append({
+                "username": username,
+                "stage": "username",
+                "url": user_ev.url,
+                "title": user_ev.title,
+                "password_form": bool(password_form),
+            })
+            if self.result.solved:
+                self.result.authenticated = True
+                self.result.credential_username = username
+                return parser
+            if password_form is None:
+                continue
+            self.result.notes.append(f"username transition discovered for {username}")
+            for password in _passwords_for(username):
+                pbody, pparser, pev = self._request(
+                    "POST", password_form.action, self._login_payload(password_form, username, password)
+                )
+                self.result.auth_transitions.append({
+                    "username": username,
+                    "stage": "password",
+                    "url": pev.url,
+                    "title": pev.title,
+                    "password_length": len(password),
+                })
+                if self.result.solved or self._authenticated(user_ev, pparser, pbody):
+                    self.result.authenticated = True
+                    self.result.credential_username = username
+                    self.result.notes.append(f"default credential accepted for username={username}")
+                    return pparser
+        return None
 
     @staticmethod
     def _numeric_mutations(url: str) -> tuple[str, ...]:
@@ -286,7 +354,7 @@ class LocalLabWebAgent:
         return tuple(sorted(candidates))
 
     def solve(self) -> LabSolveResult:
-        root_body, root_parser, root_ev = self._request("GET", self.target)
+        _, root_parser, root_ev = self._request("GET", self.target)
         self.result.pages += 1
         self.result.root_forms = [
             {"action": f.action, "method": f.method, "fields": list(f.fields)}
@@ -295,24 +363,14 @@ class LocalLabWebAgent:
         if self.result.solved:
             return self.result
 
-        login = _looks_like_login(root_parser.forms)
+        login = _user_form(root_parser.forms)
         seed_parser = root_parser
         if login:
-            for username, password in default_credentials():
-                body, parser, _ = self._request("POST", login.action, self._login_payload(login, username, password))
-                if self.result.solved:
-                    self.result.authenticated = True
-                    self.result.credential_username = username
-                    return self.result
-                if self._auth_success(root_ev, parser, parser.forms, body):
-                    self.result.authenticated = True
-                    self.result.credential_username = username
-                    self.result.notes.append(f"default credential accepted for username={username}")
-                    seed_parser = parser
-                    break
-            if not self.result.authenticated:
+            authenticated_parser = self._authenticate(login, root_ev)
+            if authenticated_parser is None:
                 self.result.notes.append("default credential corpus did not authenticate")
                 return self.result
+            seed_parser = authenticated_parser
 
         queue: list[str] = []
         seen: set[str] = {self.target}
@@ -320,7 +378,7 @@ class LocalLabWebAgent:
             if _same_origin(self.target, link):
                 queue.append(link)
 
-        body, parser, _ = self._request("GET", self.target)
+        _, parser, _ = self._request("GET", self.target)
         if self.result.solved:
             return self.result
         for link in parser.links:
