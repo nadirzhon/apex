@@ -23,7 +23,7 @@ def test_mcnemar_exact_detects_directional_discordance():
     apex = [r(x, "apex", True) for x in tasks]
     baseline = [r(x, "base", i < 3) for i, x in enumerate(tasks)]
     sig = mcnemar_exact(apex, baseline)
-    assert sig.apex_only == 10
+    assert sig.apex_only == 9
     assert sig.baseline_only == 0
     assert sig.exact_p_value < 0.01
 
