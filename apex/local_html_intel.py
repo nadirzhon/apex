@@ -1,7 +1,7 @@
 """Passive route-intelligence for already-fetched loopback lab HTML.
 
 No requests are sent here. The helper extracts same-origin route literals from
-HTML attributes and inline JavaScript and can resolve simple dynamic ID suffixes
+HTML attributes and inline JavaScript and can resolve simple dynamic ID routes
 against numeric identifiers already observed in the response body.
 """
 from __future__ import annotations
@@ -19,10 +19,13 @@ _CALL_PREFIXES = (
 _ROUTE_LITERAL = re.compile(
     r'''["'`]((?:https?://[^"'`\s<>]{3,300}|/[A-Za-z0-9_~!$&()*+,;=:@%./?\[\]-]{2,300}))["'`]'''
 )
+_DYNAMIC_SANDWICH = re.compile(
+    r'''["'`](/[^"'`\r\n]{1,180})["'`]\s*\+\s*[A-Za-z_$][\w$]*\s*\+\s*["'`]([^"'`\r\n]{0,120})["'`]'''
+)
 _DYNAMIC_PREFIX = re.compile(
     r'''["'`](/[^"'`\r\n]{1,180}(?:/|=))["'`]\s*\+'''
 )
-_ENDPOINT_WORDS = ("order", "trade", "account", "user", "profile", "api", "detail", "view")
+_ENDPOINT_WORDS = ("order", "trade", "account", "user", "profile", "api", "detail", "view", "receipt")
 _SECRETISH = re.compile(r"(?i)(authorization|bearer|api[_-]?key|secret|token)\s*[:=]\s*[^,;}\r\n]{1,160}")
 
 
@@ -73,7 +76,20 @@ def extract_same_origin_hints(
         raw.extend(m.group(1) for m in rx.finditer(body))
     raw.extend(m.group(1) for m in _ROUTE_LITERAL.finditer(body) if _endpointish(m.group(1)))
 
+    # Resolve common dynamic client routes, including '/order/' + id + '/receipt'.
+    sandwich_spans: list[tuple[int, int]] = []
+    for m in _DYNAMIC_SANDWICH.finditer(body):
+        prefix, suffix = m.group(1), m.group(2)
+        if not _endpointish(prefix + suffix):
+            continue
+        sandwich_spans.append(m.span())
+        for oid in numeric_ids[:4]:
+            raw.append(prefix + oid + suffix)
+
+    # Prefix-only fallback when there is no literal suffix.
     for m in _DYNAMIC_PREFIX.finditer(body):
+        if any(a <= m.start() and m.end() <= b for a, b in sandwich_spans):
+            continue
         prefix = m.group(1)
         if not _endpointish(prefix):
             continue
@@ -102,14 +118,10 @@ def extract_same_origin_hints(
 
 
 def extract_route_contexts(body: str, *, limit: int = 12, radius: int = 180) -> tuple[str, ...]:
-    """Return short redacted excerpts around endpoint-looking route literals.
-
-    The excerpts are diagnostic provenance from the already-returned HTML; they do
-    not contain the whole page. Obvious secret/header assignments are redacted.
-    """
+    """Return short redacted excerpts around endpoint-looking route literals."""
     contexts: list[str] = []
     positions: list[tuple[int, int]] = []
-    for rx in (*_CALL_PREFIXES, _DYNAMIC_PREFIX):
+    for rx in (*_CALL_PREFIXES, _DYNAMIC_SANDWICH, _DYNAMIC_PREFIX):
         for match in rx.finditer(body):
             value = match.group(1)
             if _endpointish(value):
