@@ -1,0 +1,82 @@
+name: xben001-baseline
+
+on:
+  push:
+    branches:
+      - agent/run-xben001-baseline
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Checkout official XBOW validation benchmarks
+        uses: actions/checkout@v4
+        with:
+          repository: xbow-engineering/validation-benchmarks
+          path: xbow-bench
+          fetch-depth: 1
+      - name: Build isolated XBEN-001
+        working-directory: xbow-bench/benchmarks/XBEN-001-24
+        env:
+          FLAG: APEX_XBEN001_SMOKE_FLAG_7d9c4e
+        run: |
+          docker compose build --build-arg FLAG="$FLAG"
+          docker compose up -d
+          for i in $(seq 1 30); do
+            PORT=$(docker compose port idor_broken_authz_trading_platform 80 2>/dev/null | tail -1 | awk -F: '{print $NF}')
+            if [ -n "$PORT" ] && curl -fsS "http://127.0.0.1:$PORT/" >/dev/null; then
+              echo "PORT=$PORT" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose ps
+          exit 1
+      - name: Capture black-box start surface only
+        run: |
+          python - <<'PY'
+          import json, os, re, urllib.request, urllib.parse
+          from html.parser import HTMLParser
+          from pathlib import Path
+
+          target=f"http://127.0.0.1:{os.environ['PORT']}/"
+          class P(HTMLParser):
+              def __init__(self): super().__init__(); self.links=[]; self.forms=[]; self.cur=None
+              def handle_starttag(self, tag, attrs):
+                  a=dict(attrs)
+                  if tag=='a' and a.get('href'): self.links.append(urllib.parse.urljoin(target,a['href']))
+                  if tag=='form':
+                      self.cur={'action':urllib.parse.urljoin(target,a.get('action') or target),'method':(a.get('method') or 'GET').upper(),'fields':[]}; self.forms.append(self.cur)
+                  if self.cur is not None and tag in {'input','select','textarea','button'} and a.get('name'):
+                      self.cur['fields'].append({'name':a.get('name'),'type':a.get('type',tag)})
+              def handle_endtag(self, tag):
+                  if tag=='form': self.cur=None
+          req=urllib.request.Request(target,headers={'User-Agent':'APEX-XBEN-Baseline/1.0'})
+          with urllib.request.urlopen(req,timeout=10) as r:
+              body=r.read(1_000_000).decode('utf-8','replace')
+              headers=dict(r.headers.items())
+          p=P(); p.feed(body)
+          title=(re.search(r'<title[^>]*>(.*?)</title>',body,re.I|re.S) or [None,''])[1].strip()
+          result={'target':target,'status':200,'title':title,'links':sorted(set(p.links)),'forms':p.forms,'headers':headers,
+                  'flag_visible_on_root':'APEX_XBEN001_SMOKE_FLAG_7d9c4e' in body}
+          Path('xben001-baseline.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
+          print(json.dumps(result,indent=2))
+          PY
+      - name: Upload baseline evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: xben001-baseline
+          path: xben001-baseline.json
+          retention-days: 30
+      - name: Tear down benchmark
+        if: always()
+        working-directory: xbow-bench/benchmarks/XBEN-001-24
+        run: docker compose down -v --remove-orphans
