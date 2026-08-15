@@ -68,13 +68,13 @@ class JavaScriptAnalyzer:
         )
         routes: dict[tuple[str, str], RouteHint] = {}
 
-        # Method-aware patterns first.
         for rx, method_group in _METHOD_PATTERNS:
             for match in rx.finditer(source):
-                if "axios." in match.group(0).lower():
+                text = match.group(0).lower()
+                if "axios." in text:
                     method = match.group(1).upper()
                     raw_url = match.group(2)
-                elif ".open" in match.group(0).lower():
+                elif ".open" in text:
                     method = match.group(1).upper()
                     raw_url = match.group(2)
                 else:
@@ -84,25 +84,21 @@ class JavaScriptAnalyzer:
 
         for rx in _ROUTE_PATTERNS:
             for match in rx.finditer(source):
-                raw_url = match.group(1)
-                self._add(routes, "UNKNOWN", raw_url, "request-hint", 0.80)
+                self._add(routes, "UNKNOWN", match.group(1), "request-hint", 0.80)
 
-        # Literal routes are lower confidence; retain only endpoint-looking paths.
         for match in _PATH_LITERAL.finditer(source):
             raw = match.group(1)
-            if not self._endpointish(raw):
-                continue
-            self._add(routes, "UNKNOWN", raw, "literal", 0.50)
+            if self._endpointish(raw):
+                self._add(routes, "UNKNOWN", raw, "literal", 0.50)
 
         for match in _SECRETISH.finditer(source):
             value = match.group(1)
-            if not value:
-                continue
-            analysis.secret_hints.append(RedactedSecretHint(
-                kind="secret-like-literal",
-                fingerprint=hashlib.sha256(value.encode()).hexdigest()[:16],
-                length=len(value),
-            ))
+            if value:
+                analysis.secret_hints.append(RedactedSecretHint(
+                    kind="secret-like-literal",
+                    fingerprint=hashlib.sha256(value.encode()).hexdigest()[:16],
+                    length=len(value),
+                ))
 
         analysis.routes = sorted(routes.values(), key=lambda x: (-x.confidence, x.url, x.method))
         analysis.secret_hints = list(dict.fromkeys(analysis.secret_hints))
@@ -113,10 +109,9 @@ class JavaScriptAnalyzer:
         for analysis in analyses:
             for route in analysis.routes:
                 parsed = urllib.parse.urlparse(route.url)
-                host = (parsed.hostname or self.root_host).lower()
-                if host != self.root_host:
+                if (parsed.hostname or self.root_host).lower() != self.root_host:
                     continue
-                method = route.method if route.method != "UNKNOWN" else "GET"
+                method = route.method
                 key = (method, route.url)
                 records[key] = {
                     "key": f"{method} {parsed.path or '/'}",
@@ -124,12 +119,13 @@ class JavaScriptAnalyzer:
                     "url": route.url,
                     "status": 0,
                     "params": sorted(urllib.parse.parse_qs(parsed.query).keys()),
-                    "mutates_state": method.upper() in {"POST", "PUT", "PATCH", "DELETE"},
+                    "mutates_state": method in {"POST", "PUT", "PATCH", "DELETE"},
                     "attrs": {
                         "source": "javascript-static",
                         "script_url": analysis.script_url,
                         "confidence": route.confidence,
                         "hint_source": route.source,
+                        "method_confirmed": method != "UNKNOWN",
                     },
                 }
         return sorted(records.values(), key=lambda r: (r["url"], r["method"]))
