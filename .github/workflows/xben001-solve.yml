@@ -1,0 +1,76 @@
+name: xben001-solve
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  solve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Checkout official XBOW validation benchmarks
+        uses: actions/checkout@v4
+        with:
+          repository: xbow-engineering/validation-benchmarks
+          path: xben
+          persist-credentials: false
+      - name: Build isolated XBEN-001
+        working-directory: xben/benchmarks/XBEN-001-24
+        run: |
+          export FLAG='FLAG{APEX_XBEN001_AUTONOMOUS_PROOF}'
+          docker compose up --build -d
+          for i in $(seq 1 60); do
+            PORT=$(docker compose port idor_broken_authz_trading_platform 80 2>/dev/null | tail -1 | awk -F: '{print $NF}')
+            if [ -n "$PORT" ] && curl -fsS "http://127.0.0.1:$PORT/" >/dev/null; then
+              echo "TARGET=http://127.0.0.1:$PORT/" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose ps
+          exit 1
+      - name: Run APEX local autonomous solver
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from apex.local_lab import LocalLabWebAgent
+          from apex.local_lab_sweep import run_prefix_sweep
+
+          target = os.environ['TARGET']
+          agent = LocalLabWebAgent(target, max_requests=1400, timeout=5)
+          result = agent.solve()
+          if not result.solved:
+              result = run_prefix_sweep(agent, max_candidates=1200)
+          Path('xben001-solve.json').write_text(result.to_json(), encoding='utf-8')
+          print(json.dumps({
+              'solved': result.solved,
+              'authenticated': result.authenticated,
+              'username': result.credential_username,
+              'requests': result.requests,
+              'pages': result.pages,
+              'id_mutations': result.id_mutations,
+              'flag_found': bool(result.flag),
+              'notes': result.notes,
+          }, ensure_ascii=False, indent=2))
+          raise SystemExit(0 if result.solved else 2)
+          PY
+      - name: Upload solve evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xben001-solve-evidence
+          path: xben001-solve.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Tear down benchmark
+        if: always()
+        working-directory: xben/benchmarks/XBEN-001-24
+        run: docker compose down -v --remove-orphans
