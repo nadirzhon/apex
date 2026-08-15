@@ -1,9 +1,7 @@
 name: xben001-solve
 
 on:
-  push:
-    branches:
-      - agent/xben-local-lab-solver
+  workflow_dispatch:
 
 permissions:
   contents: read
