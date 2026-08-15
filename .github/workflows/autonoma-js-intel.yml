@@ -1,0 +1,72 @@
+name: autonoma-js-intel
+
+on:
+  push:
+    branches:
+      - agent/run-autonoma-js-intel
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch observed same-origin JS and analyze statically
+        run: |
+          python - <<'PY'
+          import json, urllib.request
+          from pathlib import Path
+          from apex.js_intel import JavaScriptAnalyzer
+
+          root='https://autonoma.uk/'
+          scripts=[
+            'https://autonoma.uk/_astro/Contact.astro_astro_type_script_index_0_lang.hakWxFMr.js',
+            'https://autonoma.uk/_astro/Method.astro_astro_type_script_index_0_lang.DVmHezWN.js',
+            'https://autonoma.uk/_astro/Motion.astro_astro_type_script_index_0_lang.BPjGmZsa.js',
+            'https://autonoma.uk/_astro/PhotoCloth.astro_astro_type_script_index_0_lang.Dn-u3m6m.js',
+            'https://autonoma.uk/_astro/ScrollTrigger.D7MWR7hw.js',
+            'https://autonoma.uk/_astro/ServicesPinned.astro_astro_type_script_index_0_lang.Ca96_KSd.js',
+            'https://autonoma.uk/_astro/SystemGraph.astro_astro_type_script_index_0_lang.DHI4GDBh.js',
+            'https://autonoma.uk/_astro/gsap.D1O2useh.js',
+            'https://autonoma.uk/_astro/lenis.DoixeXP8.js',
+            'https://autonoma.uk/_astro/preload-helper.CxFQXtKk.js',
+            'https://autonoma.uk/_astro/three.module.DZlTWqWi.js',
+          ]
+          analyzer=JavaScriptAnalyzer(root)
+          analyses=[]
+          for url in scripts:
+              req=urllib.request.Request(url, headers={'User-Agent':'APEX-Passive-JS-Intel/1.0'})
+              with urllib.request.urlopen(req, timeout=10) as resp:
+                  src=resp.read(2_000_000).decode('utf-8','replace')
+              analyses.append(analyzer.analyze(url,src))
+          report={
+            'scripts': [
+              {
+                'url': a.script_url,
+                'sha256': a.sha256,
+                'routes': [r.__dict__ for r in a.routes],
+                'secret_hints': [s.__dict__ for s in a.secret_hints],
+              } for a in analyses
+            ],
+            'endpoint_records': analyzer.endpoint_records(analyses),
+          }
+          Path('autonoma-js-intel.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps({
+            'scripts':len(analyses),
+            'routes':sum(len(a.routes) for a in analyses),
+            'secret_hints':sum(len(a.secret_hints) for a in analyses),
+            'endpoint_records':len(report['endpoint_records']),
+          },indent=2))
+          PY
+      - name: Upload JS intelligence evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: autonoma-js-intel
+          path: autonoma-js-intel.json
+          retention-days: 30
