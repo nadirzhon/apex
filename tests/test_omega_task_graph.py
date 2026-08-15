@@ -59,7 +59,7 @@ def test_budget_governor_blocks_attempt_before_overrun():
 def test_dependencies_require_success():
     graph = ResearchTaskGraph()
     first = graph.add(ResearchTask("first", "observe login flow", "workflow"))
-    second = graph.add(ResearchTask("second", "test role transition", "access", dependencies=("first",)))
+    graph.add(ResearchTask("second", "test role transition", "access", dependencies=("first",)))
     assert [t.task_id for t in graph.ready()] == ["first"]
     first.status = TaskStatus.SUCCEEDED
     assert {t.task_id for t in graph.ready()} == {"second"}

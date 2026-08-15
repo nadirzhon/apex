@@ -1,4 +1,4 @@
-from apex.safe_audit import SameHostHttpsRedirectHandler, UrllibTransport, _is_authorized_https_url
+from apex.safe_audit import UrllibTransport, _is_authorized_https_url
 
 
 def test_authorized_url_policy_requires_https_and_exact_host():

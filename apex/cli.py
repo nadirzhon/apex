@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 
 from . import __version__
@@ -137,7 +138,8 @@ def cmd_arsenal(args):
     elif tool == "sqlmap":
         new = arsenal.run_sqlmap(scope, store, args.i_am_authorized, [args.target])
     else:
-        print(f"неизвестный инструмент: {tool}"); return
+        print(f"неизвестный инструмент: {tool}")
+        return
     store.save()
     _print_findings(new)
 
@@ -158,7 +160,8 @@ def cmd_kali(args):
         return
     fn = {"ffuf": kali.run_ffuf, "nuclei": kali.run_nuclei, "sqlmap": kali.run_sqlmap}.get(t)
     if not fn:
-        print(f"неизвестный инструмент: {t}"); return
+        print(f"неизвестный инструмент: {t}")
+        return
     new = fn(scope, store, args.i_am_authorized, args.target)
     store.save()
     _print_findings(new)
@@ -246,7 +249,7 @@ def cmd_ascend(args):
         for inc in incs:
             print(f"  ✓ ПРОТИВОРЕЧИЕ над типом «{inc.object_type}»: "
                   f"проверяют {inc.enforcing}, НЕ проверяют {inc.leaking}")
-            print(f"       → баг найден БЕЗ знания правильной политики")
+            print("       → баг найден БЕЗ знания правильной политики")
     print("  ✓ тип «profile» (все проверяют) — противоречия нет, не репортим")
 
     # ── breakthrough #2: self-provisioned ground-truth (логика) ─────────
@@ -293,6 +296,84 @@ def cmd_run(args):
     print(f"  отчёт: {md} · {ht}")
 
 
+def cmd_orchestrate(args):
+    """Запуск выбранных узких агентов через общий планировщик."""
+    from .orchestrator import AgentContext, PROFILES, builtin_orchestrator
+
+    orchestrator = builtin_orchestrator()
+    if args.list_agents:
+        for name, spec in orchestrator.agents.items():
+            dependencies = ", ".join(spec.depends_on) or "—"
+            capability = "network" if spec.network_access else "offline"
+            print(
+                f"{name:10} {spec.description}  "
+                f"[режим: {capability}; зависимости: {dependencies}]"
+            )
+        return
+
+    if args.list_profiles:
+        for name, agents in PROFILES.items():
+            print(f"{name:16} {' → '.join(agents)}")
+        return
+
+    scope, store, http = _load(args)
+    if args.agent and args.profile:
+        raise ValueError("используйте либо --agent, либо --profile")
+    requested = args.agent or list(PROFILES[args.profile or "baseline"])
+    context = AgentContext(
+        scope=scope,
+        store=store,
+        http=http,
+        authorized=args.i_am_authorized,
+        targets=args.target or None,
+    )
+    summary = orchestrator.run(
+        context,
+        requested,
+        dry_run=args.dry_run,
+        continue_on_error=args.continue_on_error,
+    )
+
+    if args.json:
+        print(json.dumps(summary.to_dict(), ensure_ascii=False, indent=2))
+        return 0 if summary.ok else 1
+
+    print(f"[orchestrator] план: {' → '.join(summary.plan)}")
+    for result in summary.results:
+        details = []
+        if result.assets_added:
+            details.append(f"+{result.assets_added} активов")
+        if result.findings_added:
+            details.append(f"+{result.findings_added} находок")
+        if result.duration_ms:
+            details.append(f"{result.duration_ms} мс")
+        if result.error:
+            details.append(result.error)
+        suffix = f" — {', '.join(details)}" if details else ""
+        print(f"  {result.status:>9}  {result.name}{suffix}")
+
+    if not args.dry_run:
+        md, ht = write_report(scope, store, args.out)
+        print(f"[orchestrator] отчёт: {md} · {ht}")
+    return 0 if summary.ok else 1
+
+
+def cmd_core(args):
+    """Управление бинарником гибридного Go-ядра."""
+    from .modules.go_core import binary_path, build
+
+    if args.build:
+        path = build()
+        print(f"[core] собрано: {path}")
+        return 0
+    path = binary_path()
+    if path:
+        print(f"[core] готов: {path}")
+        return 0
+    print("[core] не собран; запусти: apex core --build")
+    return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="apex", description=BANNER)
     p.add_argument("--version", action="version", version=f"APEX {__version__}")
@@ -315,13 +396,25 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--apk", required=True, help="путь к .apk")
     m.add_argument("--package", default="", help="идентификатор пакета (com.example.app)")
     m.set_defaults(fn=cmd_mobile)
-    l = sub.add_parser("llm", help="red-team prompt-injection по LLM-эндпоинту (agentstrike)")
-    l.add_argument("--target", required=True, help="URL LLM/агентного API (в scope)")
-    l.add_argument("--field", default="message", help="имя поля запроса с промптом (по умолч. message)")
-    l.add_argument("--response-path", default="response", help="путь к ответу в JSON, напр. choices.0.text")
-    l.add_argument("--header", action="append", help='HTTP-заголовок, напр. "Authorization: Bearer TOKEN"')
-    l.add_argument("--generations", type=int, default=3, help="поколений генетического поиска")
-    l.set_defaults(fn=cmd_llm)
+    llm_parser = sub.add_parser(
+        "llm", help="red-team prompt-injection по LLM-эндпоинту (agentstrike)"
+    )
+    llm_parser.add_argument("--target", required=True, help="URL LLM/агентного API (в scope)")
+    llm_parser.add_argument(
+        "--field", default="message", help="имя поля запроса с промптом (по умолч. message)"
+    )
+    llm_parser.add_argument(
+        "--response-path", default="response",
+        help="путь к ответу в JSON, напр. choices.0.text",
+    )
+    llm_parser.add_argument(
+        "--header", action="append",
+        help='HTTP-заголовок, напр. "Authorization: Bearer TOKEN"',
+    )
+    llm_parser.add_argument(
+        "--generations", type=int, default=3, help="поколений генетического поиска"
+    )
+    llm_parser.set_defaults(fn=cmd_llm)
     v = sub.add_parser("webvuln", help="активная проверка серьёзных классов: SQLi/XSS/exposed-files")
     v.add_argument("--target", required=True, help="URL в scope для активного теста")
     v.add_argument("--no-crawl", action="store_true", help="не обходить сайт, тестировать только заданный URL")
@@ -352,14 +445,31 @@ def build_parser() -> argparse.ArgumentParser:
     r = sub.add_parser("run", help="полный конвейер + отчёт")
     r.add_argument("--target", action="append", help="явные URL для web/secrets")
     r.set_defaults(fn=cmd_run)
+    o = sub.add_parser("orchestrate", help="запустить выбранных агентов по зависимостям")
+    o.add_argument("--agent", action="append",
+                   help="агент (можно повторять)")
+    o.add_argument(
+        "--profile", choices=["baseline", "passive", "fast-baseline", "offline-review"],
+                   help="готовый профиль (по умолчанию baseline)")
+    o.add_argument("--target", action="append", help="явный URL для поддерживающих это агентов")
+    o.add_argument("--dry-run", action="store_true", help="показать план без сетевых запросов")
+    o.add_argument("--continue-on-error", action="store_true",
+                   help="продолжить независимые агенты после ошибки")
+    o.add_argument("--json", action="store_true", help="вывести машинно-читаемый результат")
+    o.add_argument("--list-agents", action="store_true", help="показать реестр агентов")
+    o.add_argument("--list-profiles", action="store_true", help="показать профили запуска")
+    o.set_defaults(fn=cmd_orchestrate)
+    core = sub.add_parser("core", help="статус и сборка конкурентного Go-ядра")
+    core.add_argument("--build", action="store_true", help="собрать .apex/bin/apex-core")
+    core.set_defaults(fn=cmd_core)
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        args.fn(args)
-        return 0
+        result = args.fn(args)
+        return result if isinstance(result, int) else 0
     except PermissionError as e:
         print(f"[ОТКАЗ ГЕЙТА] {e}", file=sys.stderr)
         return 3

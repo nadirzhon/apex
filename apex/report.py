@@ -52,6 +52,13 @@ def markdown(scope: Scope, store: Store) -> str:
         ]
         if f.cvss_vector:
             lines.append(f"**CVSS-вектор:** `{f.cvss_vector}`  ")
+        if f.review_status != "unreviewed":
+            lines.append(
+                f"**Качество доказательств:** {f.quality_score}/100 · "
+                f"`{f.review_status}`  "
+            )
+            if f.review_notes:
+                lines.append("**Что дополнить:** " + "; ".join(f.review_notes) + "  ")
         if f.description:
             lines += ["", f.description, ""]
         if f.evidence:
@@ -84,6 +91,7 @@ def html_report(scope: Scope, store: Store) -> str:
           {f'<pre>{html.escape(f.evidence)}</pre>' if f.evidence else ''}
           {f'<p class="rem"><b>Ремедиация:</b> {html.escape(f.remediation)}</p>' if f.remediation else ''}
           {f'<p class="vec"><b>CVSS:</b> <code>{html.escape(f.cvss_vector)}</code></p>' if f.cvss_vector else ''}
+          {f'<p class="vec"><b>Качество доказательств:</b> {f.quality_score}/100 · <code>{html.escape(f.review_status)}</code></p>' if f.review_status != 'unreviewed' else ''}
         </article>""")
     now = dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 from ..http import SafeHTTP
 from ..models import Finding

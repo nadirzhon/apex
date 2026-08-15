@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from apex.ascend.awm import state_hash, normalize, AWM, Node, Priv
+from apex.ascend.awm import state_hash, AWM, Node, Priv
 from apex.ascend.differential import three_way, Resp
 from apex.ascend.pipeline import AscendPipeline
 from apex.scope import Scope
@@ -96,5 +96,7 @@ if __name__ == "__main__":
     n = 0
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
-            fn(); n += 1; print(f"  ok  {name}")
+            fn()
+            n += 1
+            print(f"  ok  {name}")
     print(f"\n{n} тестов ASCEND пройдено")

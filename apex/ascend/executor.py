@@ -20,10 +20,13 @@ from .differential import Resp, three_way
 
 
 def _parse_header(h: str) -> dict[str, str]:
-    if not h or ":" not in h:
-        return {}
-    k, v = h.split(":", 1)
-    return {k.strip(): v.strip()}
+    # поддержка нескольких заголовков через разделитель "||"
+    out: dict[str, str] = {}
+    for part in (h or "").split("||"):
+        if ":" in part:
+            k, v = part.split(":", 1)
+            out[k.strip()] = v.strip()
+    return out
 
 
 @dataclass

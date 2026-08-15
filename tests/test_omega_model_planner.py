@@ -69,8 +69,12 @@ def test_non_json_model_output_is_rejected():
         "output": [{"type": "message", "content": [{"type": "output_text", "text": "not json"}]}]
     })
     class A:
-        objective="x"; family="x"; expected_outcome="x"; negative_control="x"
-        specialist=Specialist("s", frozenset({"reasoning"}), 0); memory=()
+        objective = "x"
+        family = "x"
+        expected_outcome = "x"
+        negative_control = "x"
+        specialist = Specialist("s", frozenset({"reasoning"}), 0)
+        memory = ()
     with pytest.raises(ValueError):
         planner.plan(A())
 
@@ -79,7 +83,11 @@ def test_extra_fields_are_rejected():
     bad = fake_response({"store":False,"text":{"format":{"type":"json_schema"}}})["parsed"] | {"confirm": True}
     planner = StructuredModelPlanner(transport=lambda _: {"parsed": bad})
     class A:
-        objective="x"; family="x"; expected_outcome="x"; negative_control="x"
-        specialist=Specialist("s", frozenset({"reasoning"}), 0); memory=()
+        objective = "x"
+        family = "x"
+        expected_outcome = "x"
+        negative_control = "x"
+        specialist = Specialist("s", frozenset({"reasoning"}), 0)
+        memory = ()
     with pytest.raises(ValueError):
         planner.plan(A())

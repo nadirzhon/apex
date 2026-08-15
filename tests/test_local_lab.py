@@ -28,12 +28,15 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 body = f'Order {oid} owner=self'
         else:
-            self.send_response(404); self.end_headers(); return
+            self.send_response(404)
+            self.end_headers()
+            return
         raw = body.encode()
         self.send_response(200)
         self.send_header('Content-Type', 'text/html')
         self.send_header('Content-Length', str(len(raw)))
-        self.end_headers(); self.wfile.write(raw)
+        self.end_headers()
+        self.wfile.write(raw)
 
     def do_POST(self):
         n = int(self.headers.get('Content-Length', '0'))
@@ -43,9 +46,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Set-Cookie', 'session=ok; Path=/')
             self.send_header('Content-Length', str(len(body)))
-            self.end_headers(); self.wfile.write(body); return
+            self.end_headers()
+            self.wfile.write(body)
+            return
         body = b'<title>Login</title><form method="post"><input name="username"><input name="password" type="password"></form>'
-        self.send_response(200); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
+        self.send_response(200)
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
 
 class TwoStepHandler(BaseHTTPRequestHandler):
@@ -58,7 +66,8 @@ class TwoStepHandler(BaseHTTPRequestHandler):
         if cookie:
             self.send_header('Set-Cookie', cookie)
         self.send_header('Content-Length', str(len(raw)))
-        self.end_headers(); self.wfile.write(raw)
+        self.end_headers()
+        self.wfile.write(raw)
 
     def do_GET(self):
         cookie = self.headers.get('Cookie', '')
@@ -71,7 +80,8 @@ class TwoStepHandler(BaseHTTPRequestHandler):
             oid = self.path.rsplit('/', 1)[-1]
             self._send('FLAG{two-step-idor}' if oid == '11' else f'account {oid}')
         else:
-            self.send_response(404); self.end_headers()
+            self.send_response(404)
+            self.end_headers()
 
     def do_POST(self):
         n = int(self.headers.get('Content-Length', '0'))
@@ -87,12 +97,14 @@ class TwoStepHandler(BaseHTTPRequestHandler):
             else:
                 self._send('<title>Password</title><form method="post" action="/password/test"><input name="password" type="password"></form>')
         else:
-            self.send_response(404); self.end_headers()
+            self.send_response(404)
+            self.end_headers()
 
 
 def serve(handler=Handler):
     server = ThreadingHTTPServer(('127.0.0.1', 0), handler)
-    thread = Thread(target=server.serve_forever, daemon=True); thread.start()
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
     return server
 
 
@@ -114,7 +126,8 @@ def test_solves_local_default_credential_then_idor():
         assert result.requests < 60
         assert result.evidence
     finally:
-        server.shutdown(); server.server_close()
+        server.shutdown()
+        server.server_close()
 
 
 def test_solves_two_step_username_password_then_idor():
@@ -128,4 +141,5 @@ def test_solves_two_step_username_password_then_idor():
         assert result.flag == 'FLAG{two-step-idor}'
         assert any(x.get('password_form') for x in result.auth_transitions if x.get('stage') == 'username')
     finally:
-        server.shutdown(); server.server_close()
+        server.shutdown()
+        server.server_close()

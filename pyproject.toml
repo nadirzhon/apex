@@ -1,6 +1,6 @@
 [project]
 name = "apex-bounty"
-version = "1.0.0"
+version = "1.2.0"
 description = "Платформа автоматизации авторизованного bug bounty корпоративного масштаба со scope-гейтом и мостом MCP"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,6 +12,7 @@ dependencies = []  # ядро — чистый stdlib
 [project.optional-dependencies]
 mcp = ["fastmcp>=2.0"]
 browser = ["playwright>=1.50"]
+dev = ["pytest>=8", "ruff>=0.8"]
 
 [project.scripts]
 apex = "apex.cli:main"

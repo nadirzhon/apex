@@ -117,5 +117,7 @@ if __name__ == "__main__":
     n = 0
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
-            fn(); n += 1; print(f"  ok  {name}")
+            fn()
+            n += 1
+            print(f"  ok  {name}")
     print(f"\n{n} engagement tests passed")

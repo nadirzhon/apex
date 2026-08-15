@@ -14,6 +14,7 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.assets: dict[str, Asset] = {}
         self.findings: list[Finding] = []
+        self.runs: list[dict[str, Any]] = []
         self.program: str = ""
         self._load()
 
@@ -27,12 +28,14 @@ class Store:
             self.assets[asset.key()] = asset
         for f in data.get("findings", []):
             self.findings.append(Finding(**f))
+        self.runs = list(data.get("runs", []))[-100:]
 
     def save(self) -> None:
         data: dict[str, Any] = {
             "program": self.program,
             "assets": [a.__dict__ for a in self.assets.values()],
             "findings": [f.to_dict() for f in self.findings],
+            "runs": self.runs[-100:],
         }
         self.path.write_text(
             json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -44,12 +47,18 @@ class Store:
         self.assets[asset.key()] = asset
         return True
 
-    def add_finding(self, f: Finding) -> None:
-        # дедуп по (title, target)
+    def add_finding(self, f: Finding) -> bool:
+        fingerprint = f.fingerprint()
         for ex in self.findings:
-            if ex.title == f.title and ex.target == f.target:
-                return
+            if ex.fingerprint() == fingerprint:
+                return False
         self.findings.append(f)
+        return True
+
+    def record_run(self, run: dict[str, Any]) -> None:
+        """Хранить ограниченный журнал для сравнения качества запусков."""
+        self.runs.append(run)
+        self.runs = self.runs[-100:]
 
     def by_severity(self) -> dict[str, int]:
         out: dict[str, int] = {}

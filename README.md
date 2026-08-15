@@ -25,6 +25,13 @@
 - **CVSS 3.1** — собственный калькулятор base score (без зависимостей).
 - **Отчёты** — профессиональный репорт под программу: Markdown + HTML, доказательства, ремедиация, серьёзность по CVSS.
 - **Мост MCP** — движок как MCP-инструменты; Claude ведёт энгейджмент разговором в границах scope.
+- **Оркестратор агентов** — единый реестр узких модулей, разрешение зависимостей,
+  изоляция ошибок и измеримый результат каждого запуска. MVP объединяет `recon`,
+  `web`, `secrets` и офлайн-гейт `quality`; новые направления подключаются через
+  общий `AgentSpec`. Каждый запуск получает ID и сохраняется в истории состояния.
+- **APEX Go Core** — stdlib-only конкурентное сетевое ядро: worker pool,
+  per-host rate limit, cancellation, ограничение body, запрет redirect за scope и
+  JSONL-контракт с Python. Python остаётся слоем анализа и ASCEND.
 
 ## Установка
 
@@ -34,6 +41,7 @@ python3 -m apex.cli --help          # ядро работает сразу, бе
 # или как пакет:
 pip install -e .                    # команда `apex`
 pip install -e '.[mcp]'             # + мост MCP (fastmcp)
+python3 -m apex.cli core --build     # собрать конкурентное Go-ядро
 ```
 
 Требуется Python ≥ 3.10.
@@ -64,6 +72,15 @@ pip install -e '.[mcp]'             # + мост MCP (fastmcp)
 ```sh
 apex --scope program.json scope                      # показать границы
 apex --scope program.json --i-am-authorized run      # recon → web → secrets → отчёт
+apex --scope program.json orchestrate --dry-run       # показать план, сеть не используется
+apex --scope program.json --i-am-authorized orchestrate \
+     --profile baseline --json                         # recon → web + secrets → quality
+apex --scope program.json --i-am-authorized orchestrate \
+     --profile fast-baseline --target https://api.example.com  # Go recon → Python analysis
+apex --scope program.json orchestrate \
+     --profile offline-review                          # офлайн: только оценка доказательств
+apex orchestrate --list-agents                         # показать доступных агентов
+apex orchestrate --list-profiles                       # baseline/passive/offline-review
 apex --scope program.json --i-am-authorized web --target https://api.example.com
 apex --scope program.json --i-am-authorized secrets --target https://example.com
 apex --scope program.json --i-am-authorized mobile --apk app.apk --package com.example.mobile
@@ -100,6 +117,8 @@ apex/
 ├── scope.py         гейт авторизации (fail-closed)
 ├── http.py          безопасный rate-limited клиент (только GET/HEAD)
 ├── models.py        Finding/Asset + калькулятор CVSS 3.1
+├── orchestrator.py  реестр агентов, зависимости и единый журнал запусков
+├── quality.py       офлайн-гейт полноты и воспроизводимости доказательств
 ├── store.py         хранилище активов и находок (JSON)
 ├── modules/
 │   ├── recon.py     DNS + HTTP fingerprint in-scope хостов
@@ -118,6 +137,8 @@ apex/
 ├── report.py        отчёты Markdown + HTML
 ├── cli.py           CLI-оркестратор
 └── mcp_server.py    мост MCP
+core/                Go: scope, worker pool, HTTP engine, JSONL events
+cmd/apex-core/       CLI конкурентного Go-ядра
 ```
 
 ## Лицензия

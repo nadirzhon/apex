@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import hashlib
 import time
 from dataclasses import dataclass, field, asdict
 from enum import Enum
@@ -100,6 +101,9 @@ class Finding:
     cvss_score: float = 0.0
     references: list[str] = field(default_factory=list)
     found_at: float = field(default_factory=time.time)
+    quality_score: int = 0
+    review_status: str = "unreviewed"
+    review_notes: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.cvss_vector and not self.cvss_score:
@@ -110,3 +114,12 @@ class Finding:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    def fingerprint(self) -> str:
+        """Стабильный ID для дедупликации между повторными запусками."""
+        canonical = "\x1f".join((
+            self.module.strip().lower(),
+            self.title.strip().lower(),
+            self.target.strip().lower().rstrip("/"),
+        ))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
