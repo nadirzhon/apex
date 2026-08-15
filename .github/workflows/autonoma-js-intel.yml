@@ -20,7 +20,7 @@ jobs:
       - name: Fetch observed same-origin JS and analyze statically
         run: |
           python - <<'PY'
-          import json, urllib.request
+          import json, re, urllib.request
           from pathlib import Path
           from apex.js_intel import JavaScriptAnalyzer
 
@@ -45,6 +45,15 @@ jobs:
               with urllib.request.urlopen(req, timeout=10) as resp:
                   src=resp.read(2_000_000).decode('utf-8','replace')
               analyses.append(analyzer.analyze(url,src))
+
+          # Inline JavaScript is public source already returned by the authorized root page.
+          req=urllib.request.Request(root, headers={'User-Agent':'APEX-Passive-JS-Intel/1.0'})
+          with urllib.request.urlopen(req, timeout=10) as resp:
+              html=resp.read(2_000_000).decode('utf-8','replace')
+          inline_blocks=re.findall(r'<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>', html, re.I|re.S)
+          for i, block in enumerate(inline_blocks):
+              analyses.append(analyzer.analyze(f'https://autonoma.uk/?inline-script={i}', block))
+
           report={
             'scripts': [
               {
@@ -58,7 +67,8 @@ jobs:
           }
           Path('autonoma-js-intel.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
           print(json.dumps({
-            'scripts':len(analyses),
+            'sources':len(analyses),
+            'inline_blocks':len(inline_blocks),
             'routes':sum(len(a.routes) for a in analyses),
             'secret_hints':sum(len(a.secret_hints) for a in analyses),
             'endpoint_records':len(report['endpoint_records']),
