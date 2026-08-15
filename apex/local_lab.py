@@ -1,17 +1,8 @@
 """Loopback-only autonomous web lab worker for controlled security benchmarks.
 
-This module is intentionally impossible to point at production hosts.  It accepts
+This module is intentionally impossible to point at production hosts. It accepts
 only localhost / loopback targets and implements a bounded black-box loop useful
-for isolated Docker challenges:
-
-1. inventory the login surface,
-2. try a small default-credential corpus when an authentication form is present,
-3. crawl authenticated same-origin GET links,
-4. mutate observed numeric object identifiers to neighboring values,
-5. retain replayable request/response evidence and stop immediately on a flag.
-
-It does not read benchmark source code, scan networks, brute-force arbitrary
-credential spaces, or send state-changing requests after the authentication step.
+for isolated Docker challenges.
 """
 from __future__ import annotations
 
@@ -27,7 +18,6 @@ from dataclasses import asdict, dataclass, field
 from html.parser import HTMLParser
 from http.cookiejar import CookieJar
 from typing import Iterable
-
 
 _FLAG_PATTERNS = (
     re.compile(r"(?i)\b(?:flag|xben)[\s:=_-]*\{[^{}\r\n]{4,256}\}"),
@@ -68,6 +58,7 @@ class LabSolveResult:
     pages: int = 0
     id_mutations: int = 0
     evidence: list[ResponseEvidence] = field(default_factory=list)
+    root_forms: list[dict] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
     def to_json(self) -> str:
@@ -157,27 +148,33 @@ def _find_flag(body: str) -> str:
 
 
 def _looks_like_login(forms: Iterable[Form]) -> Form | None:
+    """Recognize bounded benchmark login forms.
+
+    Some intentionally vulnerable labs authenticate on a single username field;
+    requiring a password control caused APEX to miss those surfaces entirely.
+    A POST form with a user-like field is therefore enough to enter the tiny
+    default-account corpus. This remains loopback-only.
+    """
     for form in forms:
         names = {x.lower() for x in form.field_names()}
-        types = {typ for _, typ in form.fields}
-        has_user = any(x in names for x in {"username", "user", "email", "login"})
-        has_pass = "password" in types or any("pass" in x for x in names)
-        if form.method == "POST" and has_user and has_pass:
+        has_user = any(
+            x in {"username", "user", "email", "login"} or "user" in x or "login" in x
+            for x in names
+        )
+        if form.method == "POST" and has_user:
             return form
     return None
 
 
 def default_credentials() -> tuple[tuple[str, str], ...]:
-    """Small deterministic corpus, intentionally not a password brute forcer."""
-    pairs = [
+    return (
         ("admin", "admin"), ("admin", "password"), ("admin", "123456"),
         ("administrator", "administrator"), ("administrator", "password"),
         ("trader", "trader"), ("trader", "password"),
         ("demo", "demo"), ("demo", "password"),
         ("test", "test"), ("test", "password"),
         ("guest", "guest"), ("user", "user"), ("user", "password"),
-    ]
-    return tuple(pairs)
+    )
 
 
 class LocalLabWebAgent:
@@ -242,7 +239,7 @@ class LocalLabWebAgent:
             lower = name.lower()
             if typ == "password" or "pass" in lower:
                 payload[name] = password
-            elif lower in {"username", "user", "email", "login"} or "user" in lower:
+            elif lower in {"username", "user", "email", "login"} or "user" in lower or "login" in lower:
                 payload[name] = username
             elif typ in {"submit", "button"}:
                 payload[name] = "Login"
@@ -257,7 +254,7 @@ class LocalLabWebAgent:
         if _looks_like_login(forms) is None:
             if parser.title and parser.title != root_ev.title:
                 return True
-            if re.search(r"(?i)\b(logout|sign out|dashboard|portfolio|account)\b", body):
+            if re.search(r"(?i)\b(logout|sign out|dashboard|portfolio|account|trades?)\b", body):
                 return True
         return False
 
@@ -291,6 +288,10 @@ class LocalLabWebAgent:
     def solve(self) -> LabSolveResult:
         root_body, root_parser, root_ev = self._request("GET", self.target)
         self.result.pages += 1
+        self.result.root_forms = [
+            {"action": f.action, "method": f.method, "fields": list(f.fields)}
+            for f in root_parser.forms
+        ]
         if self.result.solved:
             return self.result
 
@@ -319,7 +320,6 @@ class LocalLabWebAgent:
             if _same_origin(self.target, link):
                 queue.append(link)
 
-        # Authenticated landing pages sometimes expose links only after a fresh GET.
         body, parser, _ = self._request("GET", self.target)
         if self.result.solved:
             return self.result
@@ -347,7 +347,6 @@ class LocalLabWebAgent:
                 if self.result.solved:
                     self.result.notes.append(f"flag reached by numeric object mutation from {url}")
                     return self.result
-                # A response materially different from the source is worth crawling.
                 if mbody != body and mutated not in seen:
                     queue.append(mutated)
 
