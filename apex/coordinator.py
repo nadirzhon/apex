@@ -1,13 +1,12 @@
 """Integrated OMEGA research coordinator.
 
 This module wires together hypotheses, persistent task state, cue-activated memory,
-adaptive specialist selection, and budget governance. It remains execution-agnostic:
-specialists are callbacks supplied by the caller, so APEX can use deterministic
-modules or authorized model/tool workers without embedding a hidden network client.
+adaptive specialist selection, optional structured model planning, and budget
+governance. Specialists remain explicit callbacks; planning never bypasses workers.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable, Iterable, Any
 
 from .ascend.pipeline import AscendPipeline
@@ -27,6 +26,7 @@ class Assignment:
     memory: tuple[MemoryItem, ...]
     expected_outcome: str
     negative_control: str
+    plan: Any | None = None
 
 
 @dataclass(frozen=True)
@@ -41,6 +41,7 @@ class SpecialistOutcome:
 
 
 SpecialistRunner = Callable[[Assignment], SpecialistOutcome]
+AssignmentPlanner = Callable[[Assignment], Any]
 
 
 @dataclass
@@ -56,8 +57,6 @@ class CoordinatorReport:
 
 
 class ResearchCoordinator:
-    """One bounded research loop over the APEX reasoning stack."""
-
     def __init__(
         self,
         pipeline: AscendPipeline,
@@ -66,6 +65,7 @@ class ResearchCoordinator:
         task_budget: TaskBudget | None = None,
         max_parallel: int = 3,
         memory_limit: int = 5,
+        planner: AssignmentPlanner | None = None,
     ) -> None:
         self.pipeline = pipeline
         self.specialists = tuple(specialists)
@@ -74,6 +74,7 @@ class ResearchCoordinator:
         self.task_budget = task_budget or TaskBudget()
         self.max_parallel = max(1, int(max_parallel))
         self.memory_limit = max(0, int(memory_limit))
+        self.planner = planner
         self.graph = ResearchTaskGraph()
         self.memory = LocatedMemory()
         self.portfolio = AdaptivePortfolio(self.specialists)
@@ -81,7 +82,6 @@ class ResearchCoordinator:
         self._hypothesis_to_task: dict[str, str] = {}
 
     def refresh_hypotheses(self) -> list[ResearchTask]:
-        """Materialize new pipeline hypotheses as persistent tasks."""
         created: list[ResearchTask] = []
         for hypothesis in self.pipeline.hypothesize():
             if hypothesis.id in self._hypothesis_to_task:
@@ -100,8 +100,9 @@ class ResearchCoordinator:
                 break
             hypothesis_id = self._task_to_hypothesis[task.task_id]
             cues = self._memory_cues(task)
-            memories = tuple(self.memory.activate(cues, exclude_task=task.task_id,
-                                                  limit=self.memory_limit))
+            memories = tuple(self.memory.activate(
+                cues, exclude_task=task.task_id, limit=self.memory_limit
+            ))
             choices = self.portfolio.choose(
                 family=task.family,
                 required_capabilities=task.required_capabilities,
@@ -110,7 +111,7 @@ class ResearchCoordinator:
             if not choices:
                 continue
             choice: PortfolioChoice = choices[0]
-            out.append(Assignment(
+            assignment = Assignment(
                 task_id=task.task_id,
                 hypothesis_id=hypothesis_id,
                 objective=task.objective,
@@ -120,7 +121,10 @@ class ResearchCoordinator:
                 memory=memories,
                 expected_outcome=task.expected_outcome,
                 negative_control=task.negative_control,
-            ))
+            )
+            if self.planner is not None:
+                assignment = replace(assignment, plan=self.planner(assignment))
+            out.append(assignment)
         return tuple(out)
 
     def record(self, assignment: Assignment, outcome: SpecialistOutcome) -> ResearchTask:
@@ -155,7 +159,6 @@ class ResearchCoordinator:
         return updated
 
     def run(self, runners: dict[str, SpecialistRunner], *, max_rounds: int = 8) -> CoordinatorReport:
-        """Execute a bounded loop using explicitly supplied specialist callbacks."""
         report = CoordinatorReport()
         for _ in range(max(0, int(max_rounds))):
             batch = self.assignments()
