@@ -2,7 +2,8 @@
 
 The pipeline remains fail-closed. Omega adds a semantic Digital Twin, immutable
 observations with provenance, causal state modeling, independent reasoning votes,
-falsification-first planning, and replayable evidence without weakening scope.
+multi-step chain reasoning, falsification-first planning, and replayable evidence
+without weakening scope.
 """
 from __future__ import annotations
 
@@ -13,6 +14,7 @@ from ..scope import Scope
 from ..store import Store
 from .awm import AWM, Node, Priv
 from .causal_model import ProvenanceWorldModel
+from .chains import ChainCandidate, ChainReasoner
 from .council import CouncilDecision, ReasoningCouncil
 from .court import AdversarialCourt, CourtDecision
 from .differential import Resp, three_way
@@ -44,6 +46,7 @@ class AscendPipeline:
         self.evidence: dict[str, EvidenceLedger] = {}
         self._compiler = InvariantCompiler()
         self._reasoner = HypothesisEngine()
+        self._chain_reasoner = ChainReasoner()
         self._council = ReasoningCouncil()
         self._court = AdversarialCourt()
         self._falsifier = FalsificationPlanner()
@@ -75,10 +78,16 @@ class AscendPipeline:
         self.invariants = self._compiler.compile(self.twin)
         return list(self.invariants)
 
+    def chain_candidates(self) -> list[ChainCandidate]:
+        """Return ranked evidence-grounded multi-step causal paths."""
+        return self._chain_reasoner.search(self.world)
+
     def hypothesize(self, reasoner: Reasoner | None = None) -> list[Hypothesis]:
         if not self.invariants:
             self.compile_invariants()
         hyps = self._reasoner.generate(self.awm, self.twin, self.invariants)
+        # Chain hypotheses are generated only from already-recorded observations.
+        hyps.extend(self._chain_reasoner.hypotheses(self.world))
         if reasoner:
             for node in self.awm.nodes.values():
                 hyps.extend(reasoner(node))
