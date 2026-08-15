@@ -1,6 +1,6 @@
 """Passive route-intelligence for already-fetched loopback lab HTML.
 
-No requests are sent here.  The helper extracts same-origin route literals from
+No requests are sent here. The helper extracts same-origin route literals from
 HTML attributes and inline JavaScript and can resolve simple dynamic ID suffixes
 against numeric identifiers already observed in the response body.
 """
@@ -23,6 +23,7 @@ _DYNAMIC_PREFIX = re.compile(
     r'''["'`](/[^"'`\r\n]{1,180}(?:/|=))["'`]\s*\+'''
 )
 _ENDPOINT_WORDS = ("order", "trade", "account", "user", "profile", "api", "detail", "view")
+_SECRETISH = re.compile(r"(?i)(authorization|bearer|api[_-]?key|secret|token)\s*[:=]\s*[^,;}\r\n]{1,160}")
 
 
 class _AttrParser(HTMLParser):
@@ -72,8 +73,6 @@ def extract_same_origin_hints(
         raw.extend(m.group(1) for m in rx.finditer(body))
     raw.extend(m.group(1) for m in _ROUTE_LITERAL.finditer(body) if _endpointish(m.group(1)))
 
-    # Resolve common inline-JS concatenation such as '/order/' + orderId or
-    # '/details?order_id=' + id using IDs that were independently observed.
     for m in _DYNAMIC_PREFIX.finditer(body):
         prefix = m.group(1)
         if not _endpointish(prefix):
@@ -100,3 +99,30 @@ def extract_same_origin_hints(
         if len(out) >= limit:
             break
     return tuple(out)
+
+
+def extract_route_contexts(body: str, *, limit: int = 12, radius: int = 180) -> tuple[str, ...]:
+    """Return short redacted excerpts around endpoint-looking route literals.
+
+    The excerpts are diagnostic provenance from the already-returned HTML; they do
+    not contain the whole page. Obvious secret/header assignments are redacted.
+    """
+    contexts: list[str] = []
+    positions: list[tuple[int, int]] = []
+    for rx in (*_CALL_PREFIXES, _DYNAMIC_PREFIX):
+        for match in rx.finditer(body):
+            value = match.group(1)
+            if _endpointish(value):
+                positions.append(match.span())
+    for match in _ROUTE_LITERAL.finditer(body):
+        if _endpointish(match.group(1)):
+            positions.append(match.span())
+    for start, end in sorted(positions):
+        excerpt = body[max(0, start - radius): min(len(body), end + radius)]
+        excerpt = _SECRETISH.sub(lambda m: m.group(1) + '=<redacted>', excerpt)
+        excerpt = ' '.join(excerpt.split())
+        if excerpt and excerpt not in contexts:
+            contexts.append(excerpt[:700])
+        if len(contexts) >= limit:
+            break
+    return tuple(contexts)
