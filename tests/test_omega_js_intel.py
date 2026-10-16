@@ -5,7 +5,6 @@ from apex.js_intel import JavaScriptAnalyzer
 from apex.scope import Scope
 from apex.store import Store
 
-
 SOURCE = r'''
 fetch('/api/profile');
 fetch('/api/lead', {method: 'POST', body: data});

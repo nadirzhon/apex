@@ -1,8 +1,8 @@
 from apex.ascend.awm import Priv
+from apex.ascend.causal_model import ProvenanceWorldModel
 from apex.ascend.evidence_graph import EvidenceNode
 from apex.ascend.falsification import CheckResult
 from apex.ascend.observations import Observation, ObservationLog
-from apex.ascend.causal_model import ProvenanceWorldModel
 from apex.ascend.pipeline import AscendPipeline
 from apex.scope import Scope
 from apex.store import Store
@@ -90,6 +90,6 @@ def test_pipeline_rejects_out_of_scope_observation(tmp_path):
     pl = _pipeline(tmp_path)
     try:
         pl.record_observation(Observation(kind="http", actor="x", target="https://example.com", action="GET /"))
-        assert False, "out-of-scope observation must be rejected"
+        raise AssertionError("out-of-scope observation must be rejected")
     except PermissionError:
         pass

@@ -27,3 +27,19 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["apex"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+# Pragmatic, mostly auto-fixable rule set. The project ships intentional
+# Russian-language content and defensive blanket error handling, so a few
+# opinionated/locale rules are disabled on purpose.
+select = ["E", "F", "I", "UP", "B", "C4", "PIE", "FURB"]
+ignore = [
+  "E501",   # long lines: long Russian advice/report strings
+  "ISC004", # intentional implicit string concatenation in advice literals
+  "B008",   # function calls in argument defaults used intentionally
+  "FURB167",# regex flag alias style — cosmetic
+]

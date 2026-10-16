@@ -13,12 +13,12 @@ from pathlib import Path
 from .advisor import advise
 from .engagement import EngagementManifest
 from .http import SafeHTTP
+from .modules import recon, secrets, web, webvuln
 from .quality import check as quality_check
 from .report import write as write_report
 from .scope import Scope
 from .selfcheck import assert_healthy
 from .store import Store
-from .modules import recon, web, secrets, webvuln
 
 
 @dataclass(frozen=True)

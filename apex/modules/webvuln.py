@@ -37,7 +37,7 @@ def _import_scanner():
         raise RuntimeError(
             f"web-vuln-scanner недоступен ({e}). Клонируй в ~/Desktop/web-vuln-scanner "
             "и поставь requests+beautifulsoup4, либо задай APEX_WEBVULN_PATH."
-        )
+        ) from e
 
 
 def run(scope: Scope, store: Store, http, authorized: bool,

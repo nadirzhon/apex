@@ -272,7 +272,7 @@ def advise(store: Store) -> str:
     out.append("═" * 70)
 
     # Фильтр приемлемости по HackerOne Core Ineligible Findings
-    from .eligibility import partition, ELIGIBLE, NEEDS_IMPACT, INELIGIBLE
+    from .eligibility import ELIGIBLE, INELIGIBLE, NEEDS_IMPACT, partition
     part = partition(ranked)
     out.append("\nФИЛЬТР ПРИЕМЛЕМОСТИ (HackerOne):")
     out.append(f"  ✅ нести в отчёт: {len(part[ELIGIBLE])}   "
@@ -294,7 +294,7 @@ def advise(store: Store) -> str:
             out.append(f"  Почему: {pk.why_pays}  Ожидаемый чек: {pk.reward}")
         out.append("")
 
-    from .eligibility import classify, ELIGIBLE, NEEDS_IMPACT
+    from .eligibility import ELIGIBLE, NEEDS_IMPACT, classify
     _tag = {ELIGIBLE: "✅", NEEDS_IMPACT: "⚠", "INELIGIBLE": "⛔"}
     for i, f in enumerate(ranked, 1):
         pk = PLAYBOOKS.get(_match(f) or "")

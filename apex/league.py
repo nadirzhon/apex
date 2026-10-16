@@ -12,9 +12,9 @@ import json
 import math
 import statistics
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any, Iterable
-
+from typing import Any
 
 _FORBIDDEN_MEMORY_KEYS = {
     "ground_truth", "groundtruth", "answer", "flag", "solution", "reference_exploit",

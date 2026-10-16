@@ -10,12 +10,12 @@ def test_audit_is_scope_and_authorization_gated():
     scope = _scope()
     try:
         audit(scope, "https://example.com", True, transport=lambda m, u: None)
-        assert False, "out-of-scope target must be rejected"
+        raise AssertionError("out-of-scope target must be rejected")
     except PermissionError:
         pass
     try:
         audit(scope, "https://autonoma.uk", False, transport=lambda m, u: None)
-        assert False, "explicit authorization flag is required"
+        raise AssertionError("explicit authorization flag is required")
     except PermissionError:
         pass
 
@@ -23,7 +23,7 @@ def test_audit_is_scope_and_authorization_gated():
 def test_audit_requires_https():
     try:
         audit(_scope(), "http://autonoma.uk", True, transport=lambda m, u: None)
-        assert False, "plain HTTP must be rejected"
+        raise AssertionError("plain HTTP must be rejected")
     except ValueError:
         pass
 
@@ -65,7 +65,7 @@ def test_audit_never_follows_cross_host_transport_result():
 
     try:
         audit(_scope(), "https://autonoma.uk", True, transport=transport)
-        assert False, "cross-host response must be rejected"
+        raise AssertionError("cross-host response must be rejected")
     except PermissionError:
         pass
 

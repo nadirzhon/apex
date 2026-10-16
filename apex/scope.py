@@ -39,7 +39,7 @@ class Scope:
 
     # ── загрузка ──────────────────────────────────────────────────────────
     @classmethod
-    def load(cls, path: str | Path) -> "Scope":
+    def load(cls, path: str | Path) -> Scope:
         p = Path(path)
         data = json.loads(p.read_text(encoding="utf-8"))
         return cls(

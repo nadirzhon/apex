@@ -101,6 +101,6 @@ def test_stale_assignment_rejected_after_explicit_replan(tmp_path):
     c.graph.replan(assignment.task_id, objective="new explicitly approved objective")
     try:
         c.record(assignment, SpecialistOutcome(progress={}, success=False, tool_calls=0, cost_usd=0))
-        assert False, "stale semantic anchor should be rejected"
+        raise AssertionError("stale semantic anchor should be rejected")
     except ValueError as exc:
         assert "stale" in str(exc)

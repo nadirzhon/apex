@@ -22,9 +22,9 @@ import sys
 from pathlib import Path
 
 from .models import Finding
+from .modules import llm, secrets, web, webvuln
 from .scope import Scope
 from .store import Store
-from .modules import web, secrets, llm, webvuln
 
 # ── Каталог гигантов ────────────────────────────────────────────────────
 # Курировано из публичных политик программ (2026). ai_endpoints/mcp_endpoints
@@ -104,8 +104,8 @@ def _mcpscan_surface(url: str) -> list[dict]:
     if str(src) not in sys.path and src.exists():
         sys.path.insert(0, str(src))
     try:
-        from mcpscan.connect import fetch_surface
         from mcpscan.checks import check_surface
+        from mcpscan.connect import fetch_surface
     except ImportError as e:
         return [{
             "severity": "info", "category": "tooling",

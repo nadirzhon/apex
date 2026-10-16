@@ -5,9 +5,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from apex.scope import Scope
-from apex.models import cvss31_base, Severity
+from apex.models import Severity, cvss31_base
 from apex.modules.secrets import _scan_text
+from apex.scope import Scope
 
 
 def _scope():
@@ -52,7 +52,7 @@ def test_assert_ready_requires_flag():
     for bad in (lambda: s.assert_ready(False),):
         try:
             bad()
-            assert False, "должно было бросить"
+            raise AssertionError("должно было бросить")
         except PermissionError:
             pass
     s.assert_ready(True)  # ок

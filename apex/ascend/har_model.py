@@ -41,7 +41,7 @@ def _object_params(url: str) -> tuple[str, list[str]]:
     path, params = _normalize_path(parsed.path)
     for key, _ in parse_qsl(parsed.query, keep_blank_values=True):
         low = key.lower()
-        if low in _ID_NAMES or low.endswith("_id") or low.endswith("id"):
+        if low in _ID_NAMES or low.endswith(("_id", "id")):
             if key not in params:
                 params.append(key)
     return path, params

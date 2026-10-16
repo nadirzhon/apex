@@ -101,7 +101,7 @@ def review(finding: Finding) -> QualityReview:
     )
 
 
-def run(context: "AgentContext") -> list[Finding]:
+def run(context: AgentContext) -> list[Finding]:
     """Обновить метаданные существующих кандидатов, не создавая новых."""
     for finding in context.store.findings:
         result = review(finding)

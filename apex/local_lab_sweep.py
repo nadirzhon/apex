@@ -10,8 +10,7 @@ from __future__ import annotations
 import re
 import urllib.parse
 
-from .local_lab import LocalLabWebAgent, LabSolveResult
-
+from .local_lab import LabSolveResult, LocalLabWebAgent
 
 _NUM = re.compile(r"\d{3,12}")
 

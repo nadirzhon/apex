@@ -13,6 +13,7 @@ import re
 from dataclasses import dataclass, field
 from enum import IntEnum
 
+
 # порядок привилегий важен: переход вверх без проверки = потенциальный BFLA/privesc
 class Priv(IntEnum):
     ANON = 0

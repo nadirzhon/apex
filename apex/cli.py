@@ -12,12 +12,12 @@ import json
 import sys
 
 from . import __version__
+from . import giants as giants_mod
 from .http import SafeHTTP
+from .modules import arsenal, kali, llm, mobile, recon, secrets, web, webvuln
 from .report import write as write_report
 from .scope import Scope
 from .store import Store
-from .modules import recon, web, secrets, mobile, llm, webvuln, arsenal, kali
-from . import giants as giants_mod
 
 BANNER = (
     "APEX — только для АВТОРИЗОВАННОГО тестирования в рамках объявленной "
@@ -175,7 +175,7 @@ def cmd_advise(args):
 
 def cmd_ascend(args):
     """ASCEND — движок логических уязвимостей (AWM-граф + 3-way differential)."""
-    from .ascend.differential import three_way, Resp
+    from .ascend.differential import Resp, three_way
     print("ASCEND — автономный поиск логических уязвимостей (BOLA/IDOR, privesc)")
     print("Архитектура (под scope-гейтом, Layer 0):")
     print("  L1  Recon → AWM   : граф состояний приложения (узлы+рёбра+привилегии)")
@@ -199,7 +199,7 @@ def cmd_ascend(args):
     # живой IDOR/BOLA-тест с 3-way differential
     if getattr(args, "idor", None):
         scope, store, http = _load(args)
-        from .ascend.executor import run_idor, IdorTest
+        from .ascend.executor import IdorTest, run_idor
         t = IdorTest(url_template=args.idor, victim_id=args.victim_id,
                      control_id=args.control_id, id_param=args.id_param)
         print(f"[ascend] живой IDOR-тест: {args.idor} "
@@ -236,7 +236,7 @@ def cmd_ascend(args):
         print(f"       {v.as_evidence()}")
 
     # ── breakthrough #3: self-inconsistency оракул ──────────────────────
-    from .ascend.inconsistency import detect, EnforcementObservation
+    from .ascend.inconsistency import EnforcementObservation, detect
     print("\n[selftest] self-inconsistency оракул (breakthrough #3):")
     obs = [
         EnforcementObservation("GET /api/orders/{id}", "order", cross_owner_denied=True),
@@ -298,7 +298,7 @@ def cmd_run(args):
 
 def cmd_orchestrate(args):
     """Запуск выбранных узких агентов через общий планировщик."""
-    from .orchestrator import AgentContext, PROFILES, builtin_orchestrator
+    from .orchestrator import PROFILES, AgentContext, builtin_orchestrator
 
     orchestrator = builtin_orchestrator()
     if args.list_agents:

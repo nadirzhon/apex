@@ -7,8 +7,8 @@
 она собрана как детерминированный конвейер с подключаемым LLM-слоем гипотез.
 Всё работает ТОЛЬКО внутри авторизованного scope (Layer 0).
 """
-from .awm import AWM, Node, Edge, Priv, state_hash, normalize
-from .differential import three_way, Resp, DiffVerdict
+from .awm import AWM, Edge, Node, Priv, normalize, state_hash
+from .differential import DiffVerdict, Resp, three_way
 
 __all__ = ["AWM", "Node", "Edge", "Priv", "state_hash", "normalize",
            "three_way", "Resp", "DiffVerdict"]

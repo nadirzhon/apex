@@ -50,7 +50,7 @@ class ChainReasoner:
             outgoing.setdefault(edge.cause, []).append(edge)
 
         frontier: list[tuple[tuple[str, ...], tuple[CausalEdge, ...]]] = [
-            ((state,), tuple()) for state in sorted(outgoing)
+            ((state,), ()) for state in sorted(outgoing)
         ]
         found: dict[tuple[str, ...], ChainCandidate] = {}
 

@@ -7,8 +7,8 @@ No network or exploit execution lives here.
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 from .league import AgentRun, MatchedComparison, Specialist, compare_matched
 
@@ -52,7 +52,7 @@ def mcnemar_exact(apex_runs: Iterable[AgentRun], baseline_runs: Iterable[AgentRu
     if n == 0:
         p = 1.0
     else:
-        tail = sum(math.comb(n, i) for i in range(0, min(apex_only, base_only) + 1)) / (2 ** n)
+        tail = sum(math.comb(n, i) for i in range(min(apex_only, base_only) + 1)) / (2 ** n)
         p = min(1.0, 2 * tail)
     return PairedSignificance(apex_only, base_only, n, p)
 

@@ -5,8 +5,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from apex.ascend.awm import state_hash, AWM, Node, Priv
-from apex.ascend.differential import three_way, Resp
+from apex.ascend.awm import AWM, Node, Priv, state_hash
+from apex.ascend.differential import Resp, three_way
 from apex.ascend.pipeline import AscendPipeline
 from apex.scope import Scope
 

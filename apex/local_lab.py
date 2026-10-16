@@ -13,10 +13,10 @@ import socket
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from html.parser import HTMLParser
 from http.cookiejar import CookieJar
-from typing import Iterable
 
 from .local_html_intel import extract_same_origin_hints
 
@@ -415,7 +415,7 @@ class LocalLabWebAgent:
         leaf = (parsed.path.rstrip("/").split("/")[-1] or "").lower()
         if leaf not in {"orders", "order", "trades", "trade", "accounts", "account", "users", "user"}:
             return ()
-        singular = leaf[:-1] if leaf.endswith("s") else leaf
+        singular = leaf.removesuffix("s")
         plural = singular + "s"
         origin = f"{parsed.scheme}://{parsed.netloc}"
         urls: set[str] = set()
