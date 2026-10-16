@@ -8,14 +8,13 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass, field
-from typing import Callable, Iterable
 
 from .http import SafeHTTP
 from .models import Finding
 from .scope import Scope
 from .store import Store
-
 
 PROFILES: dict[str, tuple[str, ...]] = {
     "baseline": ("web", "secrets", "quality"),
@@ -190,8 +189,8 @@ class Orchestrator:
 
 def builtin_orchestrator() -> Orchestrator:
     """MVP-реестр. Новое направление добавляется одной ``AgentSpec``."""
-    from .modules import go_core, recon, secrets, web
     from . import quality
+    from .modules import go_core, recon, secrets, web
 
     orchestrator = Orchestrator()
     orchestrator.register(AgentSpec(

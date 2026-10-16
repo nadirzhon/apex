@@ -7,7 +7,7 @@ falsification-first planning, and replayable evidence without weakening scope.
 """
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 from ..models import Finding
 from ..scope import Scope
@@ -24,7 +24,6 @@ from .falsification import CheckResult, FalsificationPlan, FalsificationPlanner,
 from .invariants import InvariantCompiler, SecurityInvariant
 from .observations import Observation, ObservationLog
 from .reasoning import Evidence, EvidenceLedger, Hypothesis, HypothesisEngine
-
 
 Fetcher = Callable[[str, str], Resp]
 Gatekeeper = Callable[[Hypothesis], bool]

@@ -24,10 +24,10 @@ except ImportError as e:  # мягкая деградация — ядро ра�
     ) from e
 
 from .http import SafeHTTP
+from .modules import mobile, recon, secrets, web
 from .report import write as write_report
 from .scope import Scope
 from .store import Store
-from .modules import recon, web, secrets, mobile
 
 mcp = FastMCP("apex")
 
@@ -116,7 +116,7 @@ def ascend_verify(baseline_status: int, baseline_body: str,
                   control_status: int, control_body: str) -> dict:
     """3-way differential validation (движок ASCEND, 0% ложных). Подтверждает
     IDOR/BOLA только если attacker получил данные жертвы И это не страница-ошибка."""
-    from .ascend.differential import three_way, Resp
+    from .ascend.differential import Resp, three_way
     v = three_way(Resp(baseline_status, baseline_body),
                   Resp(attacker_status, attacker_body),
                   Resp(control_status, control_body))

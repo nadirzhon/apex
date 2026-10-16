@@ -14,7 +14,6 @@ from typing import Any
 
 from .scope import Scope
 
-
 _ALLOWED_MODULES = {"recon", "web", "secrets", "ascend_har", "webvuln"}
 
 
@@ -85,7 +84,7 @@ class EngagementManifest:
     out_dir: str = ".apex"
 
     @classmethod
-    def load(cls, path: str | Path) -> "EngagementManifest":
+    def load(cls, path: str | Path) -> EngagementManifest:
         p = Path(path)
         data = json.loads(p.read_text(encoding="utf-8"))
         base = p.parent

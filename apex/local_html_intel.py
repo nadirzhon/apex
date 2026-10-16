@@ -10,7 +10,6 @@ import re
 import urllib.parse
 from html.parser import HTMLParser
 
-
 _CALL_PREFIXES = (
     re.compile(r'''\bfetch\s*\(\s*["'`]([^"'`]{1,240})["'`]''', re.I),
     re.compile(r'''\baxios(?:\.(?:get|post|put|patch|delete))?\s*\(\s*["'`]([^"'`]{1,240})["'`]''', re.I),
@@ -41,7 +40,7 @@ class _AttrParser(HTMLParser):
             k = (key or "").lower()
             if k in {"href", "action", "formaction", "data-url", "data-href", "data-endpoint", "data-route"}:
                 self.values.append(value)
-            elif k.startswith("on") or k.startswith("data-"):
+            elif k.startswith(("on", "data-")):
                 self.values.extend(m.group(1) for m in _ROUTE_LITERAL.finditer(value))
 
 

@@ -10,8 +10,8 @@ from __future__ import annotations
 import hashlib
 import re
 import urllib.parse
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Iterable
 
 _ROUTE_PATTERNS = [
     re.compile(r'''\bfetch\s*\(\s*["'`]([^"'`]+)["'`]'''),

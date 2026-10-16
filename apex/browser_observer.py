@@ -15,7 +15,6 @@ from typing import Any
 
 from .scope import Scope
 
-
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 

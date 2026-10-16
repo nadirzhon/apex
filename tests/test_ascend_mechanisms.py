@@ -1,10 +1,11 @@
 """Тесты новых механизмов ASCEND: self-inconsistency + self-provisioned identity."""
 import pytest
-from apex.scope import Scope
-from apex.store import Store
-from apex.ascend.inconsistency import detect, to_findings, EnforcementObservation
+
 from apex.ascend import identity
 from apex.ascend.differential import Resp
+from apex.ascend.inconsistency import EnforcementObservation, detect, to_findings
+from apex.scope import Scope
+from apex.store import Store
 
 
 def _scope():

@@ -1,12 +1,11 @@
 """Тесты новых компонентов APEX: giants, llm-гейт, advisor."""
 import pytest
 
+from apex import advisor, giants
+from apex.models import Finding
+from apex.modules import llm
 from apex.scope import Scope
 from apex.store import Store
-from apex.models import Finding
-from apex import giants
-from apex.modules import llm
-from apex import advisor
 
 
 def _scope(authorized=True, in_scope=None):
@@ -79,8 +78,9 @@ def test_advise_produces_plan(tmp_path):
 
 # ── webvuln: серьёзные классы ────────────────────────────────────────────
 def test_webvuln_gate_and_target():
-    from apex.modules import webvuln
     import pytest as _p
+
+    from apex.modules import webvuln
     # без авторизации — отказ
     with _p.raises(PermissionError):
         webvuln.run(_scope(authorized=False), Store("/tmp/x.json"), None, False, ["http://x"])
@@ -100,8 +100,9 @@ def test_advisor_maps_sqli_and_xss():
 
 # ── arsenal: боевые инструменты под гейтом ───────────────────────────────
 def test_arsenal_gate():
-    from apex.modules import arsenal
     import pytest as _p
+
+    from apex.modules import arsenal
     with _p.raises(PermissionError):
         arsenal.run_nuclei(_scope(authorized=False), Store("/tmp/x.json"), False, ["http://x"])
     with _p.raises(PermissionError):
@@ -121,8 +122,9 @@ def test_arsenal_have_detects_tools(monkeypatch):
 
 # ── kali: мост к контейнеру под гейтом ───────────────────────────────────
 def test_kali_gate():
-    from apex.modules import kali
     import pytest as _p
+
+    from apex.modules import kali
     with _p.raises(PermissionError):
         kali.run_ffuf(_scope(authorized=False), Store("/tmp/x.json"), False, "http://x")
     with _p.raises(PermissionError):

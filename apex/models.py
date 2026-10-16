@@ -1,10 +1,10 @@
 """Модели данных: серьёзность, находки, активы + калькулятор CVSS 3.1."""
 from __future__ import annotations
 
-import math
 import hashlib
+import math
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any
 
@@ -17,7 +17,7 @@ class Severity(str, Enum):
     CRITICAL = "critical"
 
     @classmethod
-    def from_cvss(cls, score: float) -> "Severity":
+    def from_cvss(cls, score: float) -> Severity:
         if score == 0:
             return cls.INFO
         if score < 4.0:

@@ -6,12 +6,13 @@ governance. Specialists remain explicit callbacks; planning never bypasses worke
 """
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
-from typing import Callable, Iterable, Any
+from typing import Any
 
 from .ascend.pipeline import AscendPipeline
-from .league import LocatedMemory, MemoryItem, Specialist
 from .experiments import AdaptivePortfolio, PortfolioChoice
+from .league import LocatedMemory, MemoryItem, Specialist
 from .task_graph import AttemptResult, ResearchTask, ResearchTaskGraph, TaskBudget, TaskStatus
 
 

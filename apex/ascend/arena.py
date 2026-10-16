@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import ipaddress
 import time
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from typing import Callable, Iterable
 from urllib.parse import urlparse
 
 

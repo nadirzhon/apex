@@ -3,15 +3,14 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
-from typing import Iterable
+from collections.abc import Iterable
+from pathlib import Path
 
 from ..models import Asset, Finding
 from ..orchestrator import AgentContext
 from ..store import Store
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BINARY = PROJECT_ROOT / ".apex" / "bin" / "apex-core"

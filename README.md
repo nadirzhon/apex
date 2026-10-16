@@ -1,5 +1,9 @@
 # APEX
 
+[![CI](https://github.com/nadirzhon/apex/actions/workflows/ci.yml/badge.svg)](https://github.com/nadirzhon/apex/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+
 **Authorized security automation for modern web and AI systems.**
 
 APEX is a scope-first security automation platform that combines reconnaissance, web checks, secrets analysis, mobile analysis, LLM red-team testing, evidence collection and reporting behind explicit authorization gates.
@@ -99,7 +103,10 @@ apex --scope program.json --i-am-authorized orchestrate --profile baseline --jso
 apex --scope program.json report
 ```
 
-Without authorization or when a target is outside scope, execution fails closed.
+Without authorization or when a target is outside scope, active execution fails closed.
+
+> New here? Follow the reproducible, offline [demo walkthrough](docs/DEMO.md) — it
+> needs no network access or credentials.
 
 ## MCP interface
 

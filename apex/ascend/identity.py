@@ -19,8 +19,8 @@ from __future__ import annotations
 
 import json
 import ssl
-import urllib.request
 import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 
 from ..models import Finding
