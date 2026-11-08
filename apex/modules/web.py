@@ -46,17 +46,46 @@ SENSITIVE_PATHS = {
     "/.env": ("Экспонирован .env — вероятна утечка секретов/кред.",
               "Уберите .env из веб-корня, ротацию секретов.",
               "AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N", b"="),
-    "/.well-known/security.txt": ("security.txt отсутствует (не уязвимость).",
-                                  "Добавьте .well-known/security.txt.", "", b""),
+    "/.well-known/security.txt": ("security.txt присутствует (информативно, не уязвимость).",
+                                  "—", "", b"Contact"),
     "/server-status": ("Открыт Apache server-status — утечка внутренней инфы.",
                        "Ограничьте mod_status по IP.",
-                       "AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", b"Apache"),
+                       "AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", b"Apache Server Status"),
     "/actuator/health": ("Открыт Spring Actuator — возможна утечка метрик/энвов.",
                          "Ограничьте /actuator, отключите чувствительные эндпоинты.",
-                         "AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", b"status"),
+                         "AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", b'"status"'),
     "/swagger.json": ("Открыта спецификация API (Swagger/OpenAPI).",
-                      "Ограничьте доступ к спецификации в проде.", "", b"swagger"),
+                      "Ограничьте доступ к спецификации в проде.", "", b'"swagger"'),
 }
+
+# Путь, которого почти наверняка нет — базовая линия для детекта soft-404 / SPA
+# catch-all (сайт отдаёт 200+index.html на любой путь). Один запрос на хост.
+SOFT404_PROBE = "/apex-nonexistent-7f3qz9a1"
+
+
+def _is_real_exposure(r, baseline, marker: bytes) -> bool:
+    """Отличить реально экспонированный файл от soft-404 / SPA catch-all.
+
+    На сайтах, где любой путь возвращает 200 (SPA/кастомный 404), сам по себе
+    статус 200 — не доказательство. Тогда требуем, чтобы ответ был специфичен
+    для файла, а не повторял общую оболочку приложения."""
+    if r.status != 200:
+        return False
+    catch_all = baseline is not None and baseline.status == 200
+    if marker:
+        if marker not in r.body:
+            return False
+        # на catch-all маркер должен отличать файл от общей оболочки
+        if catch_all and baseline.body and marker in baseline.body:
+            return False
+        return True
+    # без маркера: на catch-all нужен content-type, отличный от оболочки
+    if catch_all:
+        ct = r.headers.get("content-type", "").lower()
+        base_ct = baseline.headers.get("content-type", "").lower()
+        if "html" in ct and "html" in base_ct:
+            return False
+    return True
 
 
 def _tls_finding(host: str, port: int = 443) -> Finding | None:
@@ -128,17 +157,21 @@ def run(scope: Scope, store: Store, http: SafeHTTP, authorized: bool,
                     cvss_vector="AV:N/AC:H/PR:N/UI:R/S:U/C:L/I:N/A:N",
                 ))
 
+        # базовая линия soft-404 / SPA catch-all: один запрос по несуществующему пути
+        baseline = http.get(url.rstrip("/") + SOFT404_PROBE)
+
         # экспонированные файлы
         for path, (desc, rem, vec, marker) in SENSITIVE_PATHS.items():
             probe = url.rstrip("/") + path
             scope.guard(probe)
             r = http.get(probe)
-            if r.status == 200 and (not marker or marker in r.body):
+            if _is_real_exposure(r, baseline, marker):
                 sev = "info" if not vec else "high"
+                note = " (отличается от soft-404 базовой линии)" if baseline.status == 200 else ""
                 findings.append(Finding(
                     title=f"Экспонирован {path}", severity=sev,
                     target=probe, module="web", description=desc,
-                    evidence=f"GET {probe} → 200 ({len(r.body)} байт)",
+                    evidence=f"GET {probe} → 200 ({len(r.body)} байт){note}",
                     remediation=rem, cvss_vector=vec,
                 ))
 
