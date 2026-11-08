@@ -68,20 +68,32 @@ The result is not just a collection of scanners, but an orchestration layer arou
 | AI integration | MCP server for controlled agent workflows |
 | Performance | Optional concurrent Go core with JSONL boundary |
 
-## Quick start
+## Install
+
+```bash
+# recommended: isolated CLI install
+pipx install apex-bounty
+
+# or into the current environment
+pip install apex-bounty
+
+# with the optional MCP bridge
+pip install "apex-bounty[mcp]"
+```
+
+This installs the `apex` and `apex-auto` commands. The core has **zero dependencies**
+(pure stdlib); `[mcp]` and `[browser]` extras are optional.
+
+### From source (development)
 
 ```bash
 git clone https://github.com/nadirzhon/apex
 cd apex
-
 python3 -m apex.cli --help
-
-# Optional package install
-pip install -e .
-
-# Optional MCP support
-pip install -e '.[mcp]'
+pip install -e '.[dev]'     # editable install + pytest/ruff
 ```
+
+## Quick start
 
 Create an explicit scope:
 
