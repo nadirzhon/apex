@@ -5,7 +5,7 @@
 отражению. Мост к web-vuln-scanner (github.com/nadirzhon/web-vuln-scanner).
 
 АКТИВНЫЙ модуль: шлёт тестовые payload'ы, поэтому работает только внутри
-scope и с --i-am-authorized (fail-closed на каждую цель). Требует requests+bs4
+scope и с --i-am-authorized (fail-closed на каждую цель). Требует requests+bs4+colorama
 (берутся из окружения; если их нет — модуль сообщает и не падает).
 """
 from __future__ import annotations
@@ -26,18 +26,54 @@ _MAP = {
 }
 
 
-def _import_scanner():
-    root = Path(os.environ.get("APEX_WEBVULN_PATH", Path.home() / "Desktop" / "web-vuln-scanner"))
-    if root.exists() and str(root) not in sys.path:
-        sys.path.insert(0, str(root))
+def _candidate_roots() -> list[Path]:
+    """Места, где может лежать web-vuln-scanner (scanner.py), в порядке приоритета.
+    APEX_WEBVULN_PATH — первым; затем типовые расположения рядом с apex."""
+    roots: list[Path] = []
+    env = os.environ.get("APEX_WEBVULN_PATH")
+    if env:
+        roots.append(Path(env))
+    here = Path(__file__).resolve()
+    # apex/apex/modules/webvuln.py → родитель репозитория apex
+    repo_parent = here.parents[3] if len(here.parents) > 3 else Path.home()
+    home = Path.home()
+    roots += [
+        home / "finish_projects" / "web-vuln-scanner",
+        repo_parent / "web-vuln-scanner",      # сосед репозитория apex
+        home / "Desktop" / "web-vuln-scanner",
+        home / "web-vuln-scanner",
+        home / "projects" / "web-vuln-scanner",
+        Path.cwd() / "web-vuln-scanner",
+    ]
+    return roots
+
+
+def _import_scanner() -> tuple[type | None, str | None]:
+    """Найти и загрузить VulnScanner. Возвращает (класс, None) либо (None, причина).
+    Никогда не бросает — вызывающий деградирует мягко (докстринг модуля)."""
+    found: Path | None = None
+    for root in _candidate_roots():
+        try:
+            if root and (root / "scanner.py").is_file():
+                found = root
+                break
+        except OSError:
+            continue
+    if found is None:
+        return None, (
+            "web-vuln-scanner не найден. Склонируй github.com/nadirzhon/web-vuln-scanner "
+            "рядом с apex (например ~/finish_projects/web-vuln-scanner) или задай APEX_WEBVULN_PATH."
+        )
+    if str(found) not in sys.path:
+        sys.path.insert(0, str(found))
     try:
         from scanner import VulnScanner
-        return VulnScanner
+        return VulnScanner, None
     except ImportError as e:
-        raise RuntimeError(
-            f"web-vuln-scanner недоступен ({e}). Клонируй в ~/Desktop/web-vuln-scanner "
-            "и поставь requests+beautifulsoup4, либо задай APEX_WEBVULN_PATH."
-        ) from e
+        return None, (
+            f"web-vuln-scanner найден ({found}), но не загружается: {e}. "
+            "Установи зависимости: pip install requests beautifulsoup4 colorama."
+        )
 
 
 def run(scope: Scope, store: Store, http, authorized: bool,
@@ -48,7 +84,11 @@ def run(scope: Scope, store: Store, http, authorized: bool,
     if not targets:
         raise ValueError("webvuln требует явные --target (активное тестирование).")
 
-    VulnScanner = _import_scanner()
+    VulnScanner, reason = _import_scanner()
+    if VulnScanner is None:
+        # Мягкая деградация (как обещает докстринг): без трейсбека, без находок.
+        print(f"[webvuln] пропущено: {reason}")
+        return []
     findings: list[Finding] = []
 
     for url in targets:
