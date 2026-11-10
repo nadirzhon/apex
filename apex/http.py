@@ -11,6 +11,22 @@ from dataclasses import dataclass
 UA = "APEX/1.0 (authorized bug-bounty automation; +https://github.com/nadirzhon/apex)"
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Не следовать 3xx — вернуть сам ответ-редирект (нужно для детекта
+    open-redirect и чтобы не ходить за цель по чужому Location).
+
+    Возврат ``fp`` из http_error_30x заставляет opener вернуть сам 3xx-ответ
+    с нетронутыми статусом и заголовками (включая Location)."""
+
+    def http_error_301(self, req, fp, code, msg, headers):
+        return fp
+
+    http_error_302 = http_error_303 = http_error_307 = http_error_308 = http_error_301
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 @dataclass
 class Response:
     url: str
@@ -40,19 +56,24 @@ class SafeHTTP:
         self._last = time.monotonic()
 
     def get(self, url: str, method: str = "GET", max_bytes: int = 512_000,
-            headers: dict[str, str] | None = None) -> Response:
+            headers: dict[str, str] | None = None,
+            allow_redirects: bool = True) -> Response:
         self._throttle()
         h = {"User-Agent": UA}
         if headers:
             h.update(headers)                 # сессии актёров (Cookie/Authorization)
         req = urllib.request.Request(url, method=method, headers=h)
         ctx = ssl.create_default_context()
+        # allow_redirects=False: не ходим за чужим Location (open-redirect, SSRF-гигиена)
+        opener = _NO_REDIRECT_OPENER.open if not allow_redirects else None
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout, context=ctx) as r:
+            r = (opener(req, timeout=self.timeout)
+                 if opener else urllib.request.urlopen(req, timeout=self.timeout, context=ctx))
+            with r:
                 body = r.read(max_bytes) if method == "GET" else b""
                 return Response(
-                    url=r.geturl(),
-                    status=r.status,
+                    url=getattr(r, "url", None) or (r.geturl() if hasattr(r, "geturl") else url),
+                    status=getattr(r, "status", None) or r.getcode(),
                     headers={k.lower(): v for k, v in r.headers.items()},
                     body=body,
                 )

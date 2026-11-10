@@ -99,10 +99,11 @@ Outputs are written to the manifest's `out_dir` and `state_file`:
 
 ## Module behavior
 
-- `recon` — scope-derived asset discovery
-- `web` — non-destructive web checks
+- `recon` — scope-derived asset discovery plus subdomain-takeover fingerprinting
+- `web` — non-destructive web checks (security headers, TLS, exposed files, CORS)
 - `secrets` — exposed-secret discovery with existing masking behavior
 - `ascend_har` — offline hypothesis generation plus controlled authorization replay using a second test account
+- `webprobe` — active, non-destructive open-redirect check; rejected unless `policy.active_web_validation=true`
 - `webvuln` — active validation; rejected unless `policy.active_web_validation=true`
 
 Active validation remains an explicit local policy decision because bug-bounty

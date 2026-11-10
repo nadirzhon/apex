@@ -13,7 +13,7 @@ from pathlib import Path
 from .advisor import advise
 from .engagement import EngagementManifest
 from .http import SafeHTTP
-from .modules import recon, secrets, web, webvuln
+from .modules import recon, secrets, web, webprobe, webvuln
 from .quality import check as quality_check
 from .report import write as write_report
 from .scope import Scope
@@ -138,6 +138,10 @@ def run(manifest_path: str, authorized: bool) -> AutopilotResult:
             store.save()
 
     hypotheses_path = _write_hypotheses(manifest, all_hypotheses)
+
+    if "webprobe" in manifest.modules:
+        webprobe.run(scope, store, http, authorized, list(manifest.targets))
+        store.save()
 
     if "webvuln" in manifest.modules:
         for target in manifest.targets:

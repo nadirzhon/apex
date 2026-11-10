@@ -14,7 +14,7 @@ import sys
 from . import __version__
 from . import giants as giants_mod
 from .http import SafeHTTP
-from .modules import arsenal, kali, llm, mobile, recon, secrets, web, webvuln
+from .modules import arsenal, kali, llm, mobile, recon, secrets, web, webprobe, webvuln
 from .report import write as write_report
 from .scope import Scope
 from .store import Store
@@ -125,6 +125,14 @@ def cmd_webvuln(args):
     scope, store, http = _load(args)
     print(f"[webvuln] активная проверка SQLi/XSS/exposed-files: {args.target} …")
     new = webvuln.run(scope, store, http, args.i_am_authorized, [args.target], crawl=not args.no_crawl)
+    store.save()
+    _print_findings(new)
+
+
+def cmd_webprobe(args):
+    scope, store, http = _load(args)
+    print(f"[webprobe] активная неразрушающая проверка open redirect: {args.target} …")
+    new = webprobe.run(scope, store, http, args.i_am_authorized, [args.target])
     store.save()
     _print_findings(new)
 
@@ -419,6 +427,9 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--target", required=True, help="URL в scope для активного теста")
     v.add_argument("--no-crawl", action="store_true", help="не обходить сайт, тестировать только заданный URL")
     v.set_defaults(fn=cmd_webvuln)
+    wp = sub.add_parser("webprobe", help="активная неразрушающая проверка: open redirect")
+    wp.add_argument("--target", required=True, help="URL в scope (с redirect-параметром)")
+    wp.set_defaults(fn=cmd_webprobe)
     a = sub.add_parser("arsenal", help="боевые инструменты Kali-класса (nuclei/sqlmap) под scope-гейтом")
     a.add_argument("--tool", required=True, choices=["nuclei", "sqlmap"], help="какой инструмент запустить")
     a.add_argument("--target", required=True, help="URL в scope")
