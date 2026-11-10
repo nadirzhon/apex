@@ -40,7 +40,7 @@ def _ctx() -> tuple[Scope, Store, SafeHTTP]:
     scope = Scope.load(_SCOPE_PATH)
     store = Store(_STATE)
     store.program = scope.program
-    return scope, store, SafeHTTP(rate_limit_rps=scope.rate_limit_rps)
+    return scope, store, SafeHTTP(rate_limit_rps=scope.rate_limit_rps, in_scope=scope.in_scope_target)
 
 
 @mcp.tool()

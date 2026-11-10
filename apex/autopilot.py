@@ -105,7 +105,7 @@ def run(manifest_path: str, authorized: bool) -> AutopilotResult:
 
     store = Store(manifest.state_file)
     store.program = scope.program
-    http = SafeHTTP(rate_limit_rps=scope.rate_limit_rps)
+    http = SafeHTTP(rate_limit_rps=scope.rate_limit_rps, in_scope=scope.in_scope_target)
 
     if "recon" in manifest.modules:
         recon.run(scope, store, http, authorized)

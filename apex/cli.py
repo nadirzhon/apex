@@ -29,7 +29,7 @@ def _load(args) -> tuple[Scope, Store, SafeHTTP]:
     scope = Scope.load(args.scope)
     store = Store(args.state)
     store.program = scope.program
-    http = SafeHTTP(rate_limit_rps=scope.rate_limit_rps)
+    http = SafeHTTP(rate_limit_rps=scope.rate_limit_rps, in_scope=scope.in_scope_target)
     return scope, store, http
 
 

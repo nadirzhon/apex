@@ -37,13 +37,15 @@ def _candidate_roots() -> list[Path]:
     # apex/apex/modules/webvuln.py → родитель репозитория apex
     repo_parent = here.parents[3] if len(here.parents) > 3 else Path.home()
     home = Path.home()
+    # Только доверенные, НЕ управляемые атакующим пути. Намеренно БЕЗ Path.cwd():
+    # импорт scanner.py из текущего каталога = запуск чужого кода, если apex
+    # запущен в недоверенной директории (напр. распакованный engagement-архив).
     roots += [
         home / "finish_projects" / "web-vuln-scanner",
-        repo_parent / "web-vuln-scanner",      # сосед репозитория apex
+        repo_parent / "web-vuln-scanner",      # сосед репозитория apex (не CWD)
         home / "Desktop" / "web-vuln-scanner",
         home / "web-vuln-scanner",
         home / "projects" / "web-vuln-scanner",
-        Path.cwd() / "web-vuln-scanner",
     ]
     return roots
 

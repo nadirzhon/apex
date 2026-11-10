@@ -6,9 +6,27 @@ import ssl
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 
 UA = "APEX/1.0 (authorized bug-bounty automation; +https://github.com/nadirzhon/apex)"
+
+
+class _ScopedRedirect(urllib.request.HTTPRedirectHandler):
+    """Следовать 3xx ТОЛЬКО если цель редиректа остаётся в scope. Иначе не ходим
+    по чужому Location (fail-closed): возвращаем сам 3xx-ответ вызывающему.
+
+    Это закрывает обход scope-гейта: in-scope URL не может увести пробу на
+    out-of-scope хост простым редиректом."""
+
+    def __init__(self, in_scope: Callable[[str], bool]):
+        super().__init__()
+        self._in_scope = in_scope
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not self._in_scope(newurl):
+            return None  # вне scope — не следуем; opener вернёт 3xx-ответ
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -44,10 +62,16 @@ class SafeHTTP:
     """Дросселированный клиент. Все запросы идут через один инстанс, который
     держит rate-limit по программе (не долбит цель)."""
 
-    def __init__(self, rate_limit_rps: float = 2.0, timeout: float = 10.0):
+    def __init__(self, rate_limit_rps: float = 2.0, timeout: float = 10.0,
+                 in_scope: Callable[[str], bool] | None = None):
         self.min_interval = 1.0 / max(rate_limit_rps, 0.1)
         self.timeout = timeout
         self._last = 0.0
+        # Если задан предикат scope — редиректы проверяются на КАЖДОМ хопе, и за
+        # out-of-scope Location клиент не ходит (fail-closed, см. _ScopedRedirect).
+        self._scoped_opener = (
+            urllib.request.build_opener(_ScopedRedirect(in_scope)) if in_scope else None
+        )
 
     def _throttle(self) -> None:
         dt = time.monotonic() - self._last
@@ -64,8 +88,16 @@ class SafeHTTP:
             h.update(headers)                 # сессии актёров (Cookie/Authorization)
         req = urllib.request.Request(url, method=method, headers=h)
         ctx = ssl.create_default_context()
-        # allow_redirects=False: не ходим за чужим Location (open-redirect, SSRF-гигиена)
-        opener = _NO_REDIRECT_OPENER.open if not allow_redirects else None
+        # Выбор opener:
+        #  - allow_redirects=False → не следуем 3xx (open-redirect, SSRF-гигиена);
+        #  - иначе есть scope-предикат → следуем, но только по in-scope Location;
+        #  - иначе → обычное поведение urlopen.
+        if not allow_redirects:
+            opener = _NO_REDIRECT_OPENER.open
+        elif self._scoped_opener is not None:
+            opener = self._scoped_opener.open
+        else:
+            opener = None
         try:
             r = (opener(req, timeout=self.timeout)
                  if opener else urllib.request.urlopen(req, timeout=self.timeout, context=ctx))

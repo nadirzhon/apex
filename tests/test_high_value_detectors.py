@@ -269,3 +269,35 @@ def test_takeover_fingerprint_detected():
 def test_takeover_no_false_positive_on_normal_page():
     from apex.modules import recon
     assert recon._takeover_finding("https://example.com", b"<html>Welcome</html>") is None
+
+
+class _RedirH(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/r":
+            self.send_response(302)
+            self.send_header("Location", "/final")
+            self.end_headers()
+        else:
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"FOLLOWED")
+
+    def log_message(self, *a):
+        pass
+
+
+def test_safehttp_follows_in_scope_but_not_out_of_scope_redirect():
+    srv = HTTPServer(("127.0.0.1", 0), _RedirH)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{srv.server_port}"
+        # редирект на /final считается вне scope → НЕ следуем, получаем 302
+        blocked = SafeHTTP(rate_limit_rps=100, in_scope=lambda u: "/final" not in u)
+        r = blocked.get(base + "/r")
+        assert r.status == 302 and r.body != b"FOLLOWED"
+        # всё в scope → редирект следуется
+        ok = SafeHTTP(rate_limit_rps=100, in_scope=lambda u: True)
+        r2 = ok.get(base + "/r")
+        assert r2.status == 200 and r2.body == b"FOLLOWED"
+    finally:
+        srv.shutdown()
