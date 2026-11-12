@@ -54,12 +54,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Redirects are scope-checked on every hop: `SafeHTTP(in_scope=...)` refuses to follow a
   `Location` that leaves scope and returns the 3xx response instead (fail-closed). Wired
   into the CLI, autopilot and MCP server clients.
+- **Rate limit applies to every redirect hop**: followed redirects previously went out
+  back-to-back, so a chain of N redirects sent N extra requests past
+  `rate_limit_rps`. Each hop (same host or a different one) now waits for the client's
+  throttle like any other request; the scope check still runs first, so a refused
+  out-of-scope hop costs no slot. The limiter stays a single per-client one shared by
+  all hosts, which is stricter than a per-host limit.
 
 ### Tests
-- 171 new offline tests for the detectors' edge cases (error-body handling on a
+- 188 new offline tests for the detectors' edge cases (error-body handling on a
   loopback server, every takeover fingerprint, CNAME confirmation with a stub resolver
   (no real DNS), status gating, end-to-end `recon.run`,
-  `Location` parsing, multi-parameter and non-3xx open-redirect cases).
+  `Location` parsing, multi-parameter and non-3xx open-redirect cases, redirect-hop
+  throttling with a fake clock and server-side timestamps).
 
 ## [1.2.0] — 2026-10-16
 
