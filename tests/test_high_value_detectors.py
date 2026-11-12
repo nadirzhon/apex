@@ -259,7 +259,8 @@ def test_safehttp_no_follow_returns_3xx():
 def test_takeover_fingerprint_detected():
     from apex.modules import recon
     f = recon._takeover_finding("https://old.example.com",
-                                b"<h1>There isn't a GitHub Pages site here.</h1>")
+                                b"<h1>There isn't a GitHub Pages site here.</h1>", 404,
+                                cnames=["org.github.io"])
     assert f is not None and "GitHub Pages" in f.title and f.severity in ("high", "critical")
     assert eligibility.classify(f)[0] == eligibility.ELIGIBLE
     assert advisor._match(f) == "subdomain_takeover"

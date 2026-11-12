@@ -15,9 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `policy.active_web_validation`): mutates only pre-existing redirect-style parameters
   to a benign canary host and inspects the `Location` header without following the
   redirect. CLI: `apex webprobe --target <url>`.
-- **Subdomain-takeover fingerprinting** (`recon` module, passive): detects
-  dangling-service "claim this / not found" signatures (GitHub Pages, S3, Heroku,
-  Fastly, Shopify, …) on in-scope hosts.
+- **Subdomain-takeover detection** (`recon` module, passive): a finding is confirmed by
+  two independent signals — a dangling-service "claim this / not found" signature in the
+  response (GitHub Pages, S3, Heroku, Fastly, Shopify, …) **and** the host's CNAME chain
+  pointing at that service's domain (`github.io`, `s3*.amazonaws.com`, `herokuapp.com`, …).
+  A marker without a matching CNAME is never reported as a takeover: generic markers
+  yield nothing, service-unique phrases yield a low-severity "CNAME not confirmed" note
+  (not ELIGIBLE). The resolver is injectable (`recon.run(..., cname_resolver=...)`);
+  the default uses the stdlib, runs only after a marker matched, and a missing or
+  failing resolver degrades to the low-confidence path instead of crashing.
 - Advisor playbooks and HackerOne-eligibility routing for CORS, open redirect and
   subdomain takeover.
 
@@ -34,8 +40,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Subdomain-takeover false positive**: generic markers (`NoSuchBucket`,
   `Repository not found`, `project not found`, `Please renew your subscription`) fired
   on any live page that merely mentioned them and produced a critical finding. They now
-  require an error status (>= 400); service-unique phrases still match at any status.
-  Evidence includes the HTTP status.
+  require an error status (>= 400) in addition to the CNAME match, so a host's own 404
+  page saying "Repository not found" is no longer reported. Evidence includes the HTTP
+  status and the matched CNAME.
 - **Exposed-file false positives on soft-404 / SPA catch-all sites**: the `web` module
   takes a baseline from a non-existent path and requires the response to differ from the
   generic shell; markers for `server-status`, Actuator and Swagger were tightened.
@@ -49,8 +56,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   into the CLI, autopilot and MCP server clients.
 
 ### Tests
-- 107 new offline tests for the detectors' edge cases (error-body handling on a
-  loopback server, every takeover fingerprint, status gating, end-to-end `recon.run`,
+- 171 new offline tests for the detectors' edge cases (error-body handling on a
+  loopback server, every takeover fingerprint, CNAME confirmation with a stub resolver
+  (no real DNS), status gating, end-to-end `recon.run`,
   `Location` parsing, multi-parameter and non-3xx open-redirect cases).
 
 ## [1.2.0] — 2026-10-16

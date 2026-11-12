@@ -58,7 +58,7 @@ The result is not just a collection of scanners, but an orchestration layer arou
 | Scope | JSON programs, in/out-of-scope rules, authorization gates |
 | Recon | DNS/HTTP discovery and asset inventory |
 | Web | Security headers, TLS, exposed-file checks, CORS misconfiguration |
-| Takeover | Dangling-service fingerprint for subdomain takeover (recon) |
+| Takeover | Subdomain takeover: dangling-service fingerprint confirmed by CNAME to the service domain (recon) |
 | Open redirect | Parameter-based open-redirect check (non-destructive, no redirect followed) |
 | Secrets | Detection of exposed credentials with masked reporting |
 | Mobile | Offline APK analysis |

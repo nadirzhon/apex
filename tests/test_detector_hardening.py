@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from apex import eligibility
+from apex import advisor, eligibility
 from apex.http import SafeHTTP
 from apex.modules import recon, webprobe
 from apex.modules.recon import TAKEOVER_FINGERPRINTS, _takeover_finding
@@ -111,64 +111,180 @@ def test_safehttp_scoped_client_keeps_error_body(err_server):
 def test_takeover_detected_through_real_client_on_404(err_server):
     """Регрессия: раньше тело 404 отбрасывалось и детектор был слеп."""
     r = SafeHTTP(rate_limit_rps=100).get(err_server + "/")
-    f = _takeover_finding("https://old.example.com", r.body, r.status)
+    f = _takeover_finding("https://old.example.com", r.body, r.status, ["org.github.io"])
     assert f is not None and "GitHub Pages" in f.title
-    assert "404" in f.evidence
+    assert "404" in f.evidence and "org.github.io" in f.evidence
 
 
-# ---- takeover: сигнатуры и статус ------------------------------------------
-@pytest.mark.parametrize("service", sorted(TAKEOVER_FINGERPRINTS))
-def test_every_fingerprint_fires_on_error_response(service):
-    marker, _ = TAKEOVER_FINGERPRINTS[service]
-    f = _takeover_finding("https://old.example.com", b"<html>" + marker + b"</html>", 404)
-    assert f is not None and service in f.title
-    assert f.severity in ("high", "critical") and f.module == "recon"
-    assert eligibility.classify(f)[0] == eligibility.ELIGIBLE
+# ---- takeover: маркер + CNAME ----------------------------------------------
+# Пример CNAME-цели на домене каждого сервиса (как её вернул бы резолвер).
+SERVICE_CNAME = {
+    "GitHub Pages": "org.github.io",
+    "AWS S3": "bucket.s3-website-us-east-1.amazonaws.com",
+    "Heroku": "app-1234.herokudns.com",
+    "Fastly": "prod.global.fastly.net",
+    "Shopify": "shops.myshopify.com",
+    "Surge.sh": "na-west1.surge.sh",
+    "Bitbucket": "team.bitbucket.io",
+    "Pantheon": "live-site.pantheonsite.io",
+    "Tilda": "project123.tilda.ws",
+    "Help Scout": "acme.helpscoutdocs.com",
+    "Ghost": "acme.ghost.io",
+}
+GENERIC = sorted(s for s, fp in TAKEOVER_FINGERPRINTS.items() if fp.error_only)
+UNIQUE = sorted(s for s, fp in TAKEOVER_FINGERPRINTS.items() if not fp.error_only)
 
 
-GENERIC = sorted(s for s, (_, error_only) in TAKEOVER_FINGERPRINTS.items() if error_only)
-UNIQUE = sorted(s for s, (_, error_only) in TAKEOVER_FINGERPRINTS.items() if not error_only)
+def _body(service):
+    return b"<html>" + TAKEOVER_FINGERPRINTS[service].marker + b"</html>"
 
 
 def test_fingerprint_table_shape():
+    assert set(SERVICE_CNAME) == set(TAKEOVER_FINGERPRINTS)
     # короткие общие фразы обязаны быть помечены error_only
     assert {"AWS S3", "Bitbucket", "Surge.sh", "Tilda"} <= set(GENERIC)
     assert "GitHub Pages" in UNIQUE and "Heroku" in UNIQUE
-    for service, (marker, _) in TAKEOVER_FINGERPRINTS.items():
-        assert isinstance(marker, bytes) and len(marker) >= 10, service
+    for service, fp in TAKEOVER_FINGERPRINTS.items():
+        assert isinstance(fp.marker, bytes) and len(fp.marker) >= 10, service
+        assert fp.cname_suffixes and all("." in s and s == s.lower() for s in fp.cname_suffixes), service
+
+
+@pytest.mark.parametrize("service", sorted(TAKEOVER_FINGERPRINTS))
+def test_marker_plus_matching_cname_is_confirmed_finding(service):
+    f = _takeover_finding("https://old.example.com", _body(service), 404, [SERVICE_CNAME[service]])
+    assert f is not None and f.title == f"Возможный subdomain takeover ({service})"
+    assert f.severity in ("high", "critical") and f.module == "recon"
+    assert SERVICE_CNAME[service] in f.evidence
+    assert eligibility.classify(f)[0] == eligibility.ELIGIBLE
+    assert advisor._match(f) == "subdomain_takeover"
+
+
+@pytest.mark.parametrize("service", sorted(TAKEOVER_FINGERPRINTS))
+def test_cname_match_is_case_and_trailing_dot_insensitive(service):
+    cname = SERVICE_CNAME[service].upper() + "."
+    f = _takeover_finding("https://old.example.com", _body(service), 404, [cname])
+    assert f is not None and f.title.startswith("Возможный subdomain takeover")
+
+
+@pytest.mark.parametrize("cnames", [
+    None,                                   # резолвера нет
+    [],                                     # CNAME-записи нет (A-запись)
+    ["lb.example.com"],                     # CNAME на свой же балансировщик
+    ["cdn.cloudfront.net"],                 # CNAME на другой сервис
+])
+@pytest.mark.parametrize("service", GENERIC)
+def test_generic_marker_without_cname_match_is_not_a_finding(service, cnames):
+    """Своя 404-страница со словами «Repository not found» — не takeover."""
+    assert _takeover_finding("https://git.example.com", _body(service), 404, cnames) is None
+
+
+@pytest.mark.parametrize("cnames,why", [
+    (None, "резолвер недоступен"),
+    ([], "CNAME-записи нет"),
+    (["lb.example.com"], "lb.example.com"),
+])
+@pytest.mark.parametrize("service", UNIQUE)
+def test_unique_marker_without_cname_match_is_low_confidence(service, cnames, why):
+    f = _takeover_finding("https://old.example.com", _body(service), 404, cnames)
+    assert f is not None and "CNAME не подтверждён" in f.title and service in f.title
+    assert f.severity == "low" and f.cvss_score == 0.0
+    assert why in f.evidence
+    # не уходит как готовая к подаче находка, но плейбук остаётся доступен
+    assert eligibility.classify(f)[0] == eligibility.NEEDS_IMPACT
+    assert advisor._match(f) == "subdomain_takeover"
+
+
+@pytest.mark.parametrize("name", [
+    "github.io.example.com",                # суффикс сервиса внутри своего домена
+    "notgithub.io",                         # не граница метки
+    "evilgithub.io.attacker.example",
+])
+def test_cname_suffix_must_match_on_label_boundary(name):
+    fp = TAKEOVER_FINGERPRINTS["GitHub Pages"]
+    assert not fp.matches_cname(name)
+    f = _takeover_finding("https://old.example.com", _body("GitHub Pages"), 404, [name])
+    assert f is not None and f.severity == "low"       # только низкая уверенность
+
+
+@pytest.mark.parametrize("name,expected", [
+    ("bucket.s3.amazonaws.com", True),
+    ("bucket.s3.eu-west-1.amazonaws.com", True),
+    ("bucket.s3-website-us-east-1.amazonaws.com", True),
+    ("s3-1-w.amazonaws.com", True),
+    ("my-lb-123.eu-west-1.elb.amazonaws.com", False),  # AWS, но не S3
+    ("ec2-1-2-3-4.compute-1.amazonaws.com", False),
+    ("amazonaws.com", False),
+])
+def test_s3_cname_requires_s3_label(name, expected):
+    assert TAKEOVER_FINGERPRINTS["AWS S3"].matches_cname(name) is expected
+
+
+def test_cname_of_one_service_does_not_confirm_marker_of_another():
+    # маркер S3 (общий), а CNAME ведёт на GitHub Pages — подтверждения нет
+    assert _takeover_finding("https://old.example.com", _body("AWS S3"), 404, ["org.github.io"]) is None
 
 
 @pytest.mark.parametrize("service", GENERIC)
 @pytest.mark.parametrize("status", [0, 200, 204, 301, 302])
-def test_generic_marker_on_live_page_is_not_a_finding(service, status):
-    marker, _ = TAKEOVER_FINGERPRINTS[service]
-    body = b"<article>How to fix the error: " + marker + b"</article>"
-    assert _takeover_finding("https://docs.example.com", body, status) is None
+def test_generic_marker_on_live_page_is_not_a_finding_even_with_cname(service, status):
+    body = b"<article>How to fix the error: " + TAKEOVER_FINGERPRINTS[service].marker + b"</article>"
+    assert _takeover_finding("https://docs.example.com", body, status, [SERVICE_CNAME[service]]) is None
 
 
 @pytest.mark.parametrize("service", GENERIC)
 @pytest.mark.parametrize("status", [400, 404, 410, 500, 503])
-def test_generic_marker_on_error_response_is_a_finding(service, status):
-    marker, _ = TAKEOVER_FINGERPRINTS[service]
-    assert _takeover_finding("https://old.example.com", marker, status) is not None
+def test_generic_marker_on_error_response_with_cname_is_a_finding(service, status):
+    assert _takeover_finding("https://old.example.com", _body(service), status,
+                             [SERVICE_CNAME[service]]) is not None
 
 
 @pytest.mark.parametrize("service", UNIQUE)
-def test_unique_marker_fires_regardless_of_status(service):
-    marker, _ = TAKEOVER_FINGERPRINTS[service]
-    assert _takeover_finding("https://old.example.com", marker, 200) is not None
-
-
-def test_generic_marker_without_status_fails_closed():
-    assert _takeover_finding("https://example.com", b"NoSuchBucket") is None
+def test_unique_marker_with_cname_fires_regardless_of_status(service):
+    f = _takeover_finding("https://old.example.com", _body(service), 200, [SERVICE_CNAME[service]])
+    assert f is not None and f.severity in ("high", "critical")
 
 
 @pytest.mark.parametrize("body", [b"", b"<html>Welcome</html>", b"nosuchbucket", b"Not Found"])
 def test_takeover_no_finding_on_unrelated_error_page(body):
-    assert _takeover_finding("https://example.com", body, 404) is None
+    assert _takeover_finding("https://example.com", body, 404, ["org.github.io"]) is None
+
+
+# ---- резолвер CNAME ---------------------------------------------------------
+def test_system_resolver_returns_chain_without_host_itself(monkeypatch):
+    monkeypatch.setattr(recon.socket, "gethostbyname_ex",
+                        lambda h: ("Org.GitHub.io.", ["old.example.com", "alias.fastly.net"], ["192.0.2.1"]))
+    assert recon.system_cname_resolver("old.example.com") == ["org.github.io", "alias.fastly.net"]
+
+
+def test_system_resolver_no_cname_and_dns_error(monkeypatch):
+    monkeypatch.setattr(recon.socket, "gethostbyname_ex", lambda h: (h, [], ["192.0.2.1"]))
+    assert recon.system_cname_resolver("example.com") == []
+
+    def boom(h):
+        raise OSError("nxdomain")
+    monkeypatch.setattr(recon.socket, "gethostbyname_ex", boom)
+    assert recon.system_cname_resolver("example.com") == []
+
+
+def test_resolve_cnames_degrades_gracefully():
+    def broken(host):
+        raise RuntimeError("resolver down")
+    assert recon._resolve_cnames("example.com", None) is None
+    assert recon._resolve_cnames("example.com", broken) is None
+    assert recon._resolve_cnames("example.com", lambda h: ["A.GitHub.IO.", ""]) == ["a.github.io"]
+    assert recon._resolve_cnames("example.com", lambda h: iter(())) == []
 
 
 # ---- takeover: сквозной прогон recon.run -----------------------------------
+@pytest.fixture(autouse=True)
+def _no_real_dns(monkeypatch):
+    """Страховка: ни один тест этого файла не делает настоящий DNS-запрос."""
+    def blocked(host, *a, **kw):
+        raise AssertionError(f"реальный DNS-запрос в тесте: {host}")
+    monkeypatch.setattr(recon.socket, "gethostbyname", blocked)
+    monkeypatch.setattr(recon.socket, "gethostbyname_ex", blocked)
+
+
 class ReconHTTP:
     def __init__(self, pages):
         self.pages = pages
@@ -179,19 +295,37 @@ class ReconHTTP:
         return self.pages.get(url, Resp(0))
 
 
-def test_recon_run_reports_takeover_on_dangling_host(tmp_path, monkeypatch):
+class Resolver:
+    def __init__(self, table):
+        self.table = table
+        self.asked = []
+
+    def __call__(self, host):
+        self.asked.append(host)
+        return self.table.get(host, [])
+
+
+GH_404 = b"<title>Site not found</title>There isn't a GitHub Pages site here."
+
+
+def test_recon_run_reports_confirmed_takeover(tmp_path, monkeypatch):
     monkeypatch.setattr(recon.socket, "gethostbyname", lambda h: "127.0.0.1")
-    scope = _scope(tmp_path, in_scope=["old.example.com", "docs.example.com"])
+    scope = _scope(tmp_path, in_scope=["old.example.com", "docs.example.com", "git.example.com"])
     http = ReconHTTP({
-        "https://old.example.com": Resp(404, {"server": "GitHub.com"},
-                                        b"<title>Site not found</title>There isn't a GitHub Pages site here."),
+        "https://old.example.com": Resp(404, {"server": "GitHub.com"}, GH_404),
         # живая документация, упоминающая NoSuchBucket, — не takeover
         "https://docs.example.com": Resp(200, {}, b"<title>Docs</title>NoSuchBucket means ..."),
+        # своя 404-страница git-сервера — маркер есть, CNAME на сервис нет
+        "https://git.example.com": Resp(404, {}, b"<title>Git</title>Repository not found"),
     })
+    resolver = Resolver({"old.example.com": ["org.github.io"], "git.example.com": ["lb.example.com"]})
     store = Store()
-    fs = recon.run(scope, store, http, True)
+    fs = recon.run(scope, store, http, True, cname_resolver=resolver)
     assert [f.target for f in fs] == ["https://old.example.com"]
+    assert fs[0].severity in ("high", "critical") and "org.github.io" in fs[0].evidence
     assert store.findings == fs
+    # DNS спрашиваем только там, где маркер уже найден
+    assert resolver.asked == ["old.example.com", "git.example.com"]
     urls = {a.value: a for a in store.assets if a.kind == "url"}
     assert urls["https://old.example.com"].meta["status"] == 404
     assert urls["https://docs.example.com"].meta["title"] == "Docs"
@@ -203,11 +337,40 @@ def test_recon_run_falls_back_to_http_and_skips_out_of_scope(tmp_path, monkeypat
                    out_of_scope=["blog.example.com"])
     http = ReconHTTP({
         "http://old.example.com": Resp(404, {}, b"<Error><Code>NoSuchBucket</Code></Error>"),
-        "https://blog.example.com": Resp(404, {}, b"There isn't a GitHub Pages site here."),
+        "https://blog.example.com": Resp(404, {}, GH_404),
     })
-    fs = recon.run(scope, Store(), http, True)
+    resolver = Resolver({"old.example.com": ["old.example.com.s3.amazonaws.com"]})
+    fs = recon.run(scope, Store(), http, True, cname_resolver=resolver)
     assert len(fs) == 1 and "AWS S3" in fs[0].title and fs[0].target == "http://old.example.com"
     assert not any("blog.example.com" in u for u in http.urls)   # out-of-scope не запрашивался
+    assert "blog.example.com" not in resolver.asked              # и не резолвился
+
+
+@pytest.mark.parametrize("resolver", [None, lambda h: (_ for _ in ()).throw(RuntimeError("down"))])
+def test_recon_run_without_working_resolver_degrades(tmp_path, monkeypatch, resolver):
+    """Нет резолвера или он падает: прогон не падает, критичной находки нет."""
+    monkeypatch.setattr(recon.socket, "gethostbyname", lambda h: "127.0.0.1")
+    scope = _scope(tmp_path, in_scope=["old.example.com", "git.example.com"])
+    http = ReconHTTP({
+        "https://old.example.com": Resp(404, {}, GH_404),
+        "https://git.example.com": Resp(404, {}, b"Repository not found"),
+    })
+    store = Store()
+    fs = recon.run(scope, store, http, True, cname_resolver=resolver)
+    assert len(fs) == 1 and fs[0].target == "https://old.example.com"
+    assert fs[0].severity == "low" and "CNAME не подтверждён" in fs[0].title
+    assert eligibility.classify(fs[0])[0] == eligibility.NEEDS_IMPACT
+    assert len([a for a in store.assets if a.kind == "url"]) == 2
+
+
+def test_recon_run_default_resolver_uses_system_dns(tmp_path, monkeypatch):
+    monkeypatch.setattr(recon.socket, "gethostbyname", lambda h: "127.0.0.1")
+    monkeypatch.setattr(recon.socket, "gethostbyname_ex",
+                        lambda h: ("org.github.io", [h], ["127.0.0.1"]))
+    scope = _scope(tmp_path, in_scope=["old.example.com"])
+    http = ReconHTTP({"https://old.example.com": Resp(404, {}, GH_404)})
+    fs = recon.run(scope, Store(), http, True)
+    assert len(fs) == 1 and fs[0].severity in ("high", "critical")
 
 
 def test_recon_run_skips_unresolvable_host_and_requires_authorization(tmp_path, monkeypatch):
@@ -216,10 +379,11 @@ def test_recon_run_skips_unresolvable_host_and_requires_authorization(tmp_path, 
     monkeypatch.setattr(recon.socket, "gethostbyname", no_dns)
     scope = _scope(tmp_path, in_scope=["old.example.com"])
     http = ReconHTTP({})
-    assert recon.run(scope, Store(), http, True) == []
+    resolver = Resolver({})
+    assert recon.run(scope, Store(), http, True, cname_resolver=resolver) == []
     with pytest.raises(PermissionError):
-        recon.run(scope, Store(), http, False)
-    assert http.urls == []
+        recon.run(scope, Store(), http, False, cname_resolver=resolver)
+    assert http.urls == [] and resolver.asked == []
 
 
 # ---- open redirect: разбор Location ----------------------------------------
