@@ -54,6 +54,15 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 _NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirect)
 
 
+def _merge_headers(*layers: dict[str, str]) -> dict[str, str]:
+    """Слить слои заголовков; имена регистронезависимы, поздний слой побеждает."""
+    merged: dict[str, tuple[str, str]] = {}
+    for layer in layers:
+        for name, value in layer.items():
+            merged[name.lower()] = (name, value)
+    return dict(merged.values())
+
+
 @dataclass
 class Response:
     url: str
@@ -77,9 +86,16 @@ class SafeHTTP:
     хост не получает запросы чаще, чем разрешено scope."""
 
     def __init__(self, rate_limit_rps: float = 2.0, timeout: float = 10.0,
-                 in_scope: Callable[[str], bool] | None = None):
+                 in_scope: Callable[[str], bool] | None = None,
+                 default_headers: dict[str, str] | None = None):
         self.min_interval = 1.0 / max(rate_limit_rps, 0.1)
         self.timeout = timeout
+        # Заголовки, которые уходят на КАЖДОМ запросе клиента, включая хопы
+        # редиректа (urllib переносит заголовки запроса на следующий хоп).
+        # Нужны программам, которые обязывают помечать тестовый трафик, например
+        # ``X-HackerOne-Research: <username>``. Копия — чтобы внешний dict нельзя
+        # было поменять после создания клиента.
+        self.default_headers: dict[str, str] = dict(default_headers or {})
         self._last = 0.0
         # Один opener на клиент: каждый хоп редиректа проходит через _throttle, а
         # если задан предикат scope — ещё и проверяется на scope; за out-of-scope
@@ -99,9 +115,9 @@ class SafeHTTP:
             headers: dict[str, str] | None = None,
             allow_redirects: bool = True) -> Response:
         self._throttle()
-        h = {"User-Agent": UA}
-        if headers:
-            h.update(headers)                 # сессии актёров (Cookie/Authorization)
+        # Порядок: User-Agent → default_headers клиента → заголовки вызова.
+        # Имена сравниваются без учёта регистра, более поздний слой побеждает.
+        h = _merge_headers({"User-Agent": UA}, self.default_headers, headers or {})
         req = urllib.request.Request(url, method=method, headers=h)
         # allow_redirects=False → не следуем 3xx вовсе (open-redirect, SSRF-гигиена);
         # иначе следуем через opener клиента: throttle (и scope) на каждом хопе.
