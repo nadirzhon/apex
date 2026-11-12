@@ -46,7 +46,12 @@ def _location_host(location: str) -> str:
         loc = "https://" + loc[len("https:/"):]
     elif loc.startswith("http:/") and not loc.startswith("http://"):
         loc = "http://" + loc[len("http:/"):]
-    return (urlparse(loc).hostname or "").lower()
+    try:
+        return (urlparse(loc).hostname or "").lower()
+    except ValueError:
+        # Битый Location (например, незакрытый IPv6-литерал «http://[::1») —
+        # это не редирект на canary; не роняем весь прогон из-за ответа цели.
+        return ""
 
 
 def _check_url(url: str, http: SafeHTTP) -> list[Finding]:
