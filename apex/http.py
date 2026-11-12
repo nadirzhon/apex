@@ -110,10 +110,20 @@ class SafeHTTP:
                     body=body,
                 )
         except urllib.error.HTTPError as e:
+            # Тело ошибки (4xx/5xx) читаем с тем же лимитом max_bytes: это ответ
+            # того же уже проверенного хоста, новых запросов нет. Без него
+            # детекторы по сигнатуре страницы ошибки (subdomain takeover = 404
+            # «no such app/bucket») были слепы.
+            err_body = b""
+            if method == "GET":
+                try:
+                    err_body = e.read(max_bytes)
+                except (OSError, ValueError, AttributeError):
+                    err_body = b""
             return Response(
                 url=url, status=e.code,
                 headers={k.lower(): v for k, v in (e.headers or {}).items()},
-                body=b"", error=f"HTTP {e.code}",
+                body=err_body, error=f"HTTP {e.code}",
             )
         except (urllib.error.URLError, ssl.SSLError, TimeoutError, ValueError) as e:
             return Response(url=url, status=0, headers={}, body=b"", error=str(e))

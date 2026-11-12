@@ -17,36 +17,51 @@ _TITLE = re.compile(rb"<title[^>]*>(.*?)</title>", re.I | re.S)
 # поддомен можно захватить. Куратор-список по публичному can-i-take-over-xyz.
 # Детект — ТОЛЬКО по характерной сигнатуре (минимум ложных срабатываний); сам
 # захват не выполняется — это обнаружение.
-TAKEOVER_FINGERPRINTS: dict[str, bytes] = {
-    "GitHub Pages": b"There isn't a GitHub Pages site here",
-    "AWS S3": b"NoSuchBucket",
-    "Heroku": b"herokucdn.com/error-pages/no-such-app.html",
-    "Fastly": b"Fastly error: unknown domain",
-    "Shopify": b"Sorry, this shop is currently unavailable",
-    "Surge.sh": b"project not found",
-    "Bitbucket": b"Repository not found",
-    "Pantheon": b"The gods are wise, but do not know of the site which you seek",
-    "Tilda": b"Please renew your subscription",
-    "Help Scout": b"No settings were found for this company",
-    "Ghost": b"The thing you were looking for is no longer here",
+#
+# Значение: (маркер, только_на_ошибке). Короткие/общие фразы («NoSuchBucket»,
+# «Repository not found») встречаются и на обычных живых страницах — в статье
+# документации, в UI собственного приложения. Для них требуем статус ошибки
+# (>= 400): висячий сервис отвечает 404/5xx, а живая страница со случайным
+# совпадением текста — 200. Длинные уникальные фразы сервиса принимаются при
+# любом статусе.
+TAKEOVER_FINGERPRINTS: dict[str, tuple[bytes, bool]] = {
+    "GitHub Pages": (b"There isn't a GitHub Pages site here", False),
+    "AWS S3": (b"NoSuchBucket", True),
+    "Heroku": (b"herokucdn.com/error-pages/no-such-app.html", False),
+    "Fastly": (b"Fastly error: unknown domain", False),
+    "Shopify": (b"Sorry, this shop is currently unavailable", False),
+    "Surge.sh": (b"project not found", True),
+    "Bitbucket": (b"Repository not found", True),
+    "Pantheon": (b"The gods are wise, but do not know of the site which you seek", False),
+    "Tilda": (b"Please renew your subscription", True),
+    "Help Scout": (b"No settings were found for this company", False),
+    "Ghost": (b"The thing you were looking for is no longer here", False),
 }
 
 
-def _takeover_finding(url: str, body: bytes) -> Finding | None:
-    """Вернуть находку, если тело ответа соответствует сигнатуре висячего сервиса."""
-    for service, marker in TAKEOVER_FINGERPRINTS.items():
-        if marker in body:
-            return Finding(
-                title=f"Возможный subdomain takeover ({service})",
-                severity="high", target=url, module="recon",
-                description=f"Хост из scope отдаёт страницу неподтверждённого сервиса "
-                            f"{service} («claim this / not found»). Если на сервисе можно "
-                            f"зарегистрировать этот ресурс — поддомен захватывается.",
-                evidence=f"GET {url} → сигнатура {service}: {marker.decode('utf-8', 'replace')!r}",
-                remediation=f"Удалите висячую DNS-запись (CNAME) на {service} или заберите "
-                            f"ресурс на своём аккаунте сервиса.",
-                cvss_vector="AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:N",
-            )
+def _takeover_finding(url: str, body: bytes, status: int = 0) -> Finding | None:
+    """Вернуть находку, если ответ соответствует сигнатуре висячего сервиса.
+
+    ``status`` — HTTP-статус ответа. Общие маркеры срабатывают только на
+    ответе-ошибке (>= 400); неизвестный статус (0) трактуется fail-closed как
+    «не ошибка», то есть общий маркер не даёт находку."""
+    for service, (marker, error_only) in TAKEOVER_FINGERPRINTS.items():
+        if marker not in body:
+            continue
+        if error_only and status < 400:
+            continue
+        return Finding(
+            title=f"Возможный subdomain takeover ({service})",
+            severity="high", target=url, module="recon",
+            description=f"Хост из scope отдаёт страницу неподтверждённого сервиса "
+                        f"{service} («claim this / not found»). Если на сервисе можно "
+                        f"зарегистрировать этот ресурс — поддомен захватывается.",
+            evidence=f"GET {url} → {status or '?'}, сигнатура {service}: "
+                     f"{marker.decode('utf-8', 'replace')!r}",
+            remediation=f"Удалите висячую DNS-запись (CNAME) на {service} или заберите "
+                        f"ресурс на своём аккаунте сервиса.",
+            cvss_vector="AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:N",
+        )
     return None
 
 
@@ -86,7 +101,7 @@ def run(scope: Scope, store: Store, http: SafeHTTP, authorized: bool) -> list[Fi
             r = http.get(url)
             if r.status == 0:
                 continue
-            tf = _takeover_finding(url, r.body)
+            tf = _takeover_finding(url, r.body, r.status)
             if tf:
                 findings.append(tf)
                 store.add_finding(tf)
