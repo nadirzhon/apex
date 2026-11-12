@@ -2,6 +2,7 @@
 на чужие хосты. Ноль зависимостей (urllib)."""
 from __future__ import annotations
 
+import http.client
 import ssl
 import time
 import urllib.error
@@ -141,12 +142,21 @@ class SafeHTTP:
             if method == "GET":
                 try:
                     err_body = e.read(max_bytes)
-                except (OSError, ValueError, AttributeError):
+                except (OSError, http.client.HTTPException, ValueError, AttributeError):
                     err_body = b""
             return Response(
                 url=url, status=e.code,
                 headers={k.lower(): v for k, v in (e.headers or {}).items()},
                 body=err_body, error=f"HTTP {e.code}",
             )
-        except (urllib.error.URLError, ssl.SSLError, TimeoutError, ValueError) as e:
-            return Response(url=url, status=0, headers={}, body=b"", error=str(e))
+        except (OSError, http.client.HTTPException, ValueError) as e:
+            # Любой сбой уровня соединения/чтения — на первом запросе или на хопе
+            # редиректа — это «хост не ответил» (status=0), а не падение прогона:
+            #  - OSError: URLError, ConnectionError (reset/refused/aborted/broken
+            #    pipe), TimeoutError/socket.timeout, ssl.SSLError, socket.gaierror;
+            #  - http.client.HTTPException: RemoteDisconnected, BadStatusLine,
+            #    IncompleteRead, LineTooLong и прочие нарушения протокола;
+            #  - ValueError: некорректный URL.
+            # Один недоступный или капризный хост не должен ронять весь engagement.
+            return Response(url=url, status=0, headers={}, body=b"",
+                            error=str(e) or type(e).__name__)

@@ -22,6 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A manifest that sets `http_headers` together with the `webvuln` module is refused:
     the external scanner has its own HTTP stack and would not send them.
 
+### Fixed
+- **One broken host no longer aborts the whole engagement.** `SafeHTTP.get` let
+  connection-level failures escape (`http.client.RemoteDisconnected` from a host that
+  closes the connection without answering crashed an Autopilot run inside `recon`
+  before any artifact was written). Every `OSError` (connection reset/refused/aborted,
+  timeouts, TLS errors, DNS failures) and `http.client.HTTPException` (remote
+  disconnect, bad status line, incomplete read, …) — on the first request or on a
+  redirect hop — now yields `Response(status=0, error=...)`, the same as an unreachable
+  host. Successful requests, throttling, scope checks and redirects are unchanged.
+
 ## [1.3.0] — 2026-11-12
 
 ### Added
