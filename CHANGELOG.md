@@ -26,6 +26,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   3xx response without following `Location` (fixes the "no cross-host redirect
   following" promise in the client docstring).
 
+### Fixed
+- **Subdomain-takeover false negative**: `SafeHTTP.get` discarded the body of 4xx/5xx
+  responses, so the fingerprints never matched in real runs — dangling services answer
+  with 404/5xx. Error bodies are now kept (GET only, still capped by `max_bytes`, no
+  extra requests).
+- **Subdomain-takeover false positive**: generic markers (`NoSuchBucket`,
+  `Repository not found`, `project not found`, `Please renew your subscription`) fired
+  on any live page that merely mentioned them and produced a critical finding. They now
+  require an error status (>= 400); service-unique phrases still match at any status.
+  Evidence includes the HTTP status.
+- **Exposed-file false positives on soft-404 / SPA catch-all sites**: the `web` module
+  takes a baseline from a non-existent path and requires the response to differ from the
+  generic shell; markers for `server-status`, Actuator and Swagger were tightened.
+- **Open-redirect probe crash**: a malformed `Location` (e.g. an unterminated IPv6
+  literal) raised `ValueError` and aborted the whole `webprobe` run; it is now treated
+  as "not a redirect to the canary".
+
+### Security
+- Redirects are scope-checked on every hop: `SafeHTTP(in_scope=...)` refuses to follow a
+  `Location` that leaves scope and returns the 3xx response instead (fail-closed). Wired
+  into the CLI, autopilot and MCP server clients.
+
+### Tests
+- 107 new offline tests for the detectors' edge cases (error-body handling on a
+  loopback server, every takeover fingerprint, status gating, end-to-end `recon.run`,
+  `Location` parsing, multi-parameter and non-3xx open-redirect cases).
+
 ## [1.2.0] — 2026-10-16
 
 First packaged release published to PyPI as `apex-bounty`.
