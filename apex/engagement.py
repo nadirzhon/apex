@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,48 @@ class AccountRef:
         return f"{key}: {value}"
 
 
+_HEADER_NAME = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
+# Заголовки, которыми управляет сам клиент или которые несут учётные данные:
+# в манифесте им не место (секреты — только через accounts.*.headers_env).
+_FORBIDDEN_HTTP_HEADERS = {
+    "host", "content-length", "transfer-encoding", "connection",
+    "cookie", "authorization", "proxy-authorization",
+}
+
+
+def _parse_http_headers(raw: Any) -> dict[str, str]:
+    """Validate manifest ``http_headers`` — headers sent on every request.
+
+    Meant for program-mandated traffic identification such as
+    ``X-HackerOne-Research: <username>``. Fails closed on anything that is not a
+    plain, single-line header so a typo cannot silently drop the identification
+    or smuggle a second header."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError("http_headers must be a JSON object of string headers")
+    out: dict[str, str] = {}
+    seen: set[str] = set()
+    for name, value in raw.items():
+        if not isinstance(name, str) or not isinstance(value, str):
+            raise ValueError("http_headers must be a JSON object of string headers")
+        name, value = name.strip(), value.strip()
+        if not _HEADER_NAME.match(name):
+            raise ValueError(f"http_headers: invalid header name {name!r}")
+        if not value or any(ch in value for ch in "\r\n\x00"):
+            raise ValueError(f"http_headers: header {name} must have a non-empty single-line value")
+        if name.lower() in _FORBIDDEN_HTTP_HEADERS:
+            raise ValueError(
+                f"http_headers: {name} is not allowed in the manifest; credentials go "
+                f"through accounts.*.headers_env"
+            )
+        if name.lower() in seen:
+            raise ValueError(f"http_headers: duplicate header {name}")
+        seen.add(name.lower())
+        out[name] = value
+    return out
+
+
 @dataclass(frozen=True)
 class EngagementPolicy:
     """Local execution policy layered on top of the program scope.
@@ -82,6 +125,8 @@ class EngagementManifest:
     policy: EngagementPolicy = field(default_factory=EngagementPolicy)
     state_file: str = ".apex/state.json"
     out_dir: str = ".apex"
+    # Sent on every request of the run (program-mandated traffic identification).
+    http_headers: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def load(cls, path: str | Path) -> EngagementManifest:
@@ -142,6 +187,7 @@ class EngagementManifest:
             policy=policy,
             state_file=state_file,
             out_dir=out_dir,
+            http_headers=_parse_http_headers(data.get("http_headers")),
         )
 
     def validate_against_scope(self, scope: Scope) -> None:
@@ -157,6 +203,14 @@ class EngagementManifest:
             raise PermissionError(
                 "webvuln is active validation; set policy.active_web_validation=true "
                 "only when the program rules explicitly allow it"
+            )
+        if "webvuln" in self.modules and self.http_headers:
+            # webvuln drives an external scanner with its own HTTP stack, so the
+            # mandated identification headers would be missing from its traffic.
+            raise PermissionError(
+                "http_headers cannot be combined with webvuln: the external scanner "
+                "does not send them, which would break a program rule that requires "
+                "identifying every request; remove webvuln from modules"
             )
         if "webprobe" in self.modules and not self.policy.active_web_validation:
             raise PermissionError(
@@ -179,4 +233,5 @@ class EngagementManifest:
             },
             "state_file": self.state_file,
             "out_dir": self.out_dir,
+            "http_headers": sorted(self.http_headers),   # names only, like accounts
         }
