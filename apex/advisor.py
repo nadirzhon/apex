@@ -296,7 +296,7 @@ def _match(finding) -> str | None:
         return "ssrf"
     if "actuator" in t or "swagger" in t:
         return "exposed_env"
-    if "takeover" in t:
+    if "takeover" in t or "висячего сервиса" in t:
         return "subdomain_takeover"
     if "cors" in t:
         return "cors"
