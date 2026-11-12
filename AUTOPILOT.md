@@ -47,6 +47,32 @@ Safe default:
 }
 ```
 
+### Program-mandated request headers
+
+Some programs require every test request to be identifiable, for example with
+`X-HackerOne-Research: <your username>`. Put such headers in `http_headers`:
+
+```json
+{
+  "http_headers": {
+    "X-HackerOne-Research": "your-h1-username"
+  }
+}
+```
+
+Autopilot sends them on every request of `recon`, `web`, `secrets`, `webprobe` and HAR
+replay, including followed redirects. Limits:
+
+- only plain single-line headers are accepted; `Cookie`, `Authorization` and `Host` are
+  refused — credentials belong in `accounts` (next section);
+- `http_headers` cannot be combined with the `webvuln` module: its external scanner
+  sends its own requests without these headers, so the manifest is rejected;
+- the single-command CLI (`apex recon`, `apex web`, …) and the MCP server do not read a
+  manifest and therefore do not add these headers — use Autopilot when a program
+  requires them;
+- the TLS certificate check in `web` is a bare TLS handshake, not an HTTP request, so no
+  header applies to it.
+
 ## 3. Optional controlled test account
 
 Autopilot never stores account cookies or tokens in the manifest. Reference an

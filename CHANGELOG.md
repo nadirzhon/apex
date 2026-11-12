@@ -4,6 +4,24 @@ All notable changes to APEX are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Program-mandated identification headers on every request.** Many programs require
+  test traffic to carry a header such as `X-HackerOne-Research: <username>`.
+  - `SafeHTTP(default_headers=...)`: headers are merged as `User-Agent` → client
+    defaults → per-call headers (later wins, names compared case-insensitively) and are
+    sent on every request, including every followed redirect hop. Without
+    `default_headers` behaviour is unchanged.
+  - Engagement manifest: optional `http_headers` object, passed by Autopilot to the one
+    client shared by `recon`, `web`, `secrets`, `webprobe` and HAR replay.
+  - `http_headers` is validated fail-closed at load: string name/value, valid header
+    token, non-empty single-line value (no CR/LF), no duplicates; `Cookie`,
+    `Authorization`, `Host` and framing headers are refused — credentials still go only
+    through `accounts.*.headers_env`.
+  - A manifest that sets `http_headers` together with the `webvuln` module is refused:
+    the external scanner has its own HTTP stack and would not send them.
+
 ## [1.3.0] — 2026-11-12
 
 ### Added
