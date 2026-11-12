@@ -13,20 +13,29 @@ UA = "APEX/1.0 (authorized bug-bounty automation; +https://github.com/nadirzhon/
 
 
 class _ScopedRedirect(urllib.request.HTTPRedirectHandler):
-    """Следовать 3xx ТОЛЬКО если цель редиректа остаётся в scope. Иначе не ходим
-    по чужому Location (fail-closed): возвращаем сам 3xx-ответ вызывающему.
+    """Следовать 3xx ТОЛЬКО если цель редиректа остаётся в scope, и каждый хоп
+    проводить через тот же ограничитель скорости, что и обычные запросы.
 
-    Это закрывает обход scope-гейта: in-scope URL не может увести пробу на
-    out-of-scope хост простым редиректом."""
+    - Вне scope — не ходим по чужому Location (fail-closed): вызывающему
+      возвращается сам 3xx-ответ. In-scope URL не может увести пробу на
+      out-of-scope хост простым редиректом.
+    - Хоп редиректа — это настоящий запрос к цели, поэтому перед ним вызывается
+      ``before_hop`` (throttle клиента). Без этого цепочка из N редиректов давала
+      N запросов подряд мимо rate_limit_rps."""
 
-    def __init__(self, in_scope: Callable[[str], bool]):
+    def __init__(self, in_scope: Callable[[str], bool] | None = None,
+                 before_hop: Callable[[], None] | None = None):
         super().__init__()
         self._in_scope = in_scope
+        self._before_hop = before_hop
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if not self._in_scope(newurl):
+        if self._in_scope is not None and not self._in_scope(newurl):
             return None  # вне scope — не следуем; opener вернёт 3xx-ответ
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None and self._before_hop is not None:
+            self._before_hop()  # ждём слот лимита только перед реально уходящим хопом
+        return new
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -60,17 +69,24 @@ class Response:
 
 class SafeHTTP:
     """Дросселированный клиент. Все запросы идут через один инстанс, который
-    держит rate-limit по программе (не долбит цель)."""
+    держит rate-limit по программе (не долбит цель).
+
+    Лимит один на клиент и общий для всех хостов: между ЛЮБЫМИ двумя исходящими
+    запросами — включая каждый хоп редиректа и хоп на другой хост — проходит не
+    меньше ``1 / rate_limit_rps`` секунд. Это строже лимита «на хост»: ни один
+    хост не получает запросы чаще, чем разрешено scope."""
 
     def __init__(self, rate_limit_rps: float = 2.0, timeout: float = 10.0,
                  in_scope: Callable[[str], bool] | None = None):
         self.min_interval = 1.0 / max(rate_limit_rps, 0.1)
         self.timeout = timeout
         self._last = 0.0
-        # Если задан предикат scope — редиректы проверяются на КАЖДОМ хопе, и за
-        # out-of-scope Location клиент не ходит (fail-closed, см. _ScopedRedirect).
-        self._scoped_opener = (
-            urllib.request.build_opener(_ScopedRedirect(in_scope)) if in_scope else None
+        # Один opener на клиент: каждый хоп редиректа проходит через _throttle, а
+        # если задан предикат scope — ещё и проверяется на scope; за out-of-scope
+        # Location клиент не ходит (fail-closed, см. _ScopedRedirect).
+        self._opener = urllib.request.build_opener(
+            _ScopedRedirect(in_scope, self._throttle),
+            urllib.request.HTTPSHandler(context=ssl.create_default_context()),
         )
 
     def _throttle(self) -> None:
@@ -87,20 +103,11 @@ class SafeHTTP:
         if headers:
             h.update(headers)                 # сессии актёров (Cookie/Authorization)
         req = urllib.request.Request(url, method=method, headers=h)
-        ctx = ssl.create_default_context()
-        # Выбор opener:
-        #  - allow_redirects=False → не следуем 3xx (open-redirect, SSRF-гигиена);
-        #  - иначе есть scope-предикат → следуем, но только по in-scope Location;
-        #  - иначе → обычное поведение urlopen.
-        if not allow_redirects:
-            opener = _NO_REDIRECT_OPENER.open
-        elif self._scoped_opener is not None:
-            opener = self._scoped_opener.open
-        else:
-            opener = None
+        # allow_redirects=False → не следуем 3xx вовсе (open-redirect, SSRF-гигиена);
+        # иначе следуем через opener клиента: throttle (и scope) на каждом хопе.
+        opener = self._opener if allow_redirects else _NO_REDIRECT_OPENER
         try:
-            r = (opener(req, timeout=self.timeout)
-                 if opener else urllib.request.urlopen(req, timeout=self.timeout, context=ctx))
+            r = opener.open(req, timeout=self.timeout)
             with r:
                 body = r.read(max_bytes) if method == "GET" else b""
                 return Response(
