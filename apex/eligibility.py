@@ -60,6 +60,8 @@ _ELIGIBLE_STRONG = [
     ("privilege", "Privilege escalation / BFLA."),
     ("privesc", "Privilege escalation / BFLA."),
     ("ssrf", "SSRF — доступ к внутренним ресурсам."),
+    ("с credentials", "CORS с credentials — межсайтовое чтение данных жертвы, реальный impact."),
+    ("takeover", "Subdomain takeover — захват поддомена, прямой impact."),
 ]
 
 

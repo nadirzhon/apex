@@ -6,9 +6,52 @@ import ssl
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 
 UA = "APEX/1.0 (authorized bug-bounty automation; +https://github.com/nadirzhon/apex)"
+
+
+class _ScopedRedirect(urllib.request.HTTPRedirectHandler):
+    """Следовать 3xx ТОЛЬКО если цель редиректа остаётся в scope, и каждый хоп
+    проводить через тот же ограничитель скорости, что и обычные запросы.
+
+    - Вне scope — не ходим по чужому Location (fail-closed): вызывающему
+      возвращается сам 3xx-ответ. In-scope URL не может увести пробу на
+      out-of-scope хост простым редиректом.
+    - Хоп редиректа — это настоящий запрос к цели, поэтому перед ним вызывается
+      ``before_hop`` (throttle клиента). Без этого цепочка из N редиректов давала
+      N запросов подряд мимо rate_limit_rps."""
+
+    def __init__(self, in_scope: Callable[[str], bool] | None = None,
+                 before_hop: Callable[[], None] | None = None):
+        super().__init__()
+        self._in_scope = in_scope
+        self._before_hop = before_hop
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if self._in_scope is not None and not self._in_scope(newurl):
+            return None  # вне scope — не следуем; opener вернёт 3xx-ответ
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None and self._before_hop is not None:
+            self._before_hop()  # ждём слот лимита только перед реально уходящим хопом
+        return new
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Не следовать 3xx — вернуть сам ответ-редирект (нужно для детекта
+    open-redirect и чтобы не ходить за цель по чужому Location).
+
+    Возврат ``fp`` из http_error_30x заставляет opener вернуть сам 3xx-ответ
+    с нетронутыми статусом и заголовками (включая Location)."""
+
+    def http_error_301(self, req, fp, code, msg, headers):
+        return fp
+
+    http_error_302 = http_error_303 = http_error_307 = http_error_308 = http_error_301
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirect)
 
 
 @dataclass
@@ -26,12 +69,25 @@ class Response:
 
 class SafeHTTP:
     """Дросселированный клиент. Все запросы идут через один инстанс, который
-    держит rate-limit по программе (не долбит цель)."""
+    держит rate-limit по программе (не долбит цель).
 
-    def __init__(self, rate_limit_rps: float = 2.0, timeout: float = 10.0):
+    Лимит один на клиент и общий для всех хостов: между ЛЮБЫМИ двумя исходящими
+    запросами — включая каждый хоп редиректа и хоп на другой хост — проходит не
+    меньше ``1 / rate_limit_rps`` секунд. Это строже лимита «на хост»: ни один
+    хост не получает запросы чаще, чем разрешено scope."""
+
+    def __init__(self, rate_limit_rps: float = 2.0, timeout: float = 10.0,
+                 in_scope: Callable[[str], bool] | None = None):
         self.min_interval = 1.0 / max(rate_limit_rps, 0.1)
         self.timeout = timeout
         self._last = 0.0
+        # Один opener на клиент: каждый хоп редиректа проходит через _throttle, а
+        # если задан предикат scope — ещё и проверяется на scope; за out-of-scope
+        # Location клиент не ходит (fail-closed, см. _ScopedRedirect).
+        self._opener = urllib.request.build_opener(
+            _ScopedRedirect(in_scope, self._throttle),
+            urllib.request.HTTPSHandler(context=ssl.create_default_context()),
+        )
 
     def _throttle(self) -> None:
         dt = time.monotonic() - self._last
@@ -40,27 +96,41 @@ class SafeHTTP:
         self._last = time.monotonic()
 
     def get(self, url: str, method: str = "GET", max_bytes: int = 512_000,
-            headers: dict[str, str] | None = None) -> Response:
+            headers: dict[str, str] | None = None,
+            allow_redirects: bool = True) -> Response:
         self._throttle()
         h = {"User-Agent": UA}
         if headers:
             h.update(headers)                 # сессии актёров (Cookie/Authorization)
         req = urllib.request.Request(url, method=method, headers=h)
-        ctx = ssl.create_default_context()
+        # allow_redirects=False → не следуем 3xx вовсе (open-redirect, SSRF-гигиена);
+        # иначе следуем через opener клиента: throttle (и scope) на каждом хопе.
+        opener = self._opener if allow_redirects else _NO_REDIRECT_OPENER
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout, context=ctx) as r:
+            r = opener.open(req, timeout=self.timeout)
+            with r:
                 body = r.read(max_bytes) if method == "GET" else b""
                 return Response(
-                    url=r.geturl(),
-                    status=r.status,
+                    url=getattr(r, "url", None) or (r.geturl() if hasattr(r, "geturl") else url),
+                    status=getattr(r, "status", None) or r.getcode(),
                     headers={k.lower(): v for k, v in r.headers.items()},
                     body=body,
                 )
         except urllib.error.HTTPError as e:
+            # Тело ошибки (4xx/5xx) читаем с тем же лимитом max_bytes: это ответ
+            # того же уже проверенного хоста, новых запросов нет. Без него
+            # детекторы по сигнатуре страницы ошибки (subdomain takeover = 404
+            # «no such app/bucket») были слепы.
+            err_body = b""
+            if method == "GET":
+                try:
+                    err_body = e.read(max_bytes)
+                except (OSError, ValueError, AttributeError):
+                    err_body = b""
             return Response(
                 url=url, status=e.code,
                 headers={k.lower(): v for k, v in (e.headers or {}).items()},
-                body=b"", error=f"HTTP {e.code}",
+                body=err_body, error=f"HTTP {e.code}",
             )
         except (urllib.error.URLError, ssl.SSLError, TimeoutError, ValueError) as e:
             return Response(url=url, status=0, headers={}, body=b"", error=str(e))

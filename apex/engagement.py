@@ -14,7 +14,7 @@ from typing import Any
 
 from .scope import Scope
 
-_ALLOWED_MODULES = {"recon", "web", "secrets", "ascend_har", "webvuln"}
+_ALLOWED_MODULES = {"recon", "web", "secrets", "ascend_har", "webvuln", "webprobe"}
 
 
 @dataclass(frozen=True)
@@ -157,6 +157,11 @@ class EngagementManifest:
             raise PermissionError(
                 "webvuln is active validation; set policy.active_web_validation=true "
                 "only when the program rules explicitly allow it"
+            )
+        if "webprobe" in self.modules and not self.policy.active_web_validation:
+            raise PermissionError(
+                "webprobe (open-redirect) is active validation; set "
+                "policy.active_web_validation=true only when the program rules allow it"
             )
 
     def summary(self) -> dict[str, Any]:

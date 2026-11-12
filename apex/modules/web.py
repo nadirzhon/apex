@@ -46,17 +46,115 @@ SENSITIVE_PATHS = {
     "/.env": ("Экспонирован .env — вероятна утечка секретов/кред.",
               "Уберите .env из веб-корня, ротацию секретов.",
               "AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N", b"="),
-    "/.well-known/security.txt": ("security.txt отсутствует (не уязвимость).",
-                                  "Добавьте .well-known/security.txt.", "", b""),
+    "/.well-known/security.txt": ("security.txt присутствует (информативно, не уязвимость).",
+                                  "—", "", b"Contact"),
     "/server-status": ("Открыт Apache server-status — утечка внутренней инфы.",
                        "Ограничьте mod_status по IP.",
-                       "AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", b"Apache"),
+                       "AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", b"Apache Server Status"),
     "/actuator/health": ("Открыт Spring Actuator — возможна утечка метрик/энвов.",
                          "Ограничьте /actuator, отключите чувствительные эндпоинты.",
-                         "AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", b"status"),
+                         "AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", b'"status"'),
     "/swagger.json": ("Открыта спецификация API (Swagger/OpenAPI).",
-                      "Ограничьте доступ к спецификации в проде.", "", b"swagger"),
+                      "Ограничьте доступ к спецификации в проде.", "", b'"swagger"'),
 }
+
+# Путь, которого почти наверняка нет — базовая линия для детекта soft-404 / SPA
+# catch-all (сайт отдаёт 200+index.html на любой путь). Один запрос на хост.
+SOFT404_PROBE = "/apex-nonexistent-7f3qz9a1"
+
+# Произвольный «чужой» Origin для проверки CORS. Не принадлежит цели — если сервер
+# отражает его в Access-Control-Allow-Origin, доверие к Origin сломано.
+CORS_PROBE_ORIGIN = "https://apex-cors-probe.attacker.example"
+
+
+def _cors_findings(url: str, http: SafeHTTP) -> list[Finding]:
+    """Пассивный детект небезопасной CORS-конфигурации.
+
+    Отправляем один GET с произвольным чужим Origin и один с Origin: null,
+    смотрим Access-Control-Allow-Origin (ACAO) и -Allow-Credentials (ACAC).
+    Опасно, когда сервер отражает ПРОИЗВОЛЬНЫЙ Origin (или null) ВМЕСТЕ с
+    credentials: любой сайт атакующего читает ответы с данными жертвы.
+    Чистый GET, состояние не меняется — безопасно в baseline."""
+    out: list[Finding] = []
+    r = http.get(url, headers={"Origin": CORS_PROBE_ORIGIN})
+    if not r.status:
+        return out
+    acao = r.headers.get("access-control-allow-origin", "")
+    acac = r.headers.get("access-control-allow-credentials", "").strip().lower() == "true"
+
+    if acao == CORS_PROBE_ORIGIN:
+        if acac:
+            out.append(Finding(
+                title="CORS: отражение произвольного Origin с credentials",
+                severity="high", target=url, module="web",
+                description="Сервер отражает любой переданный Origin в ACAO и ставит "
+                            "Allow-Credentials: true — чужой сайт читает ответы с данными "
+                            "аутентифицированной жертвы (межсайтовое чтение).",
+                evidence=f"Origin: {CORS_PROBE_ORIGIN} → ACAO: {acao}; ACAC: true",
+                remediation="Сверяй Origin со строгим allowlist; никогда не отражай "
+                            "произвольный Origin вместе с Allow-Credentials.",
+                cvss_vector="AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:L/A:N",
+            ))
+        else:
+            out.append(Finding(
+                title="CORS: отражение произвольного Origin (без credentials)",
+                severity="medium", target=url, module="web",
+                description="Сервер отражает любой Origin в ACAO. Без credentials читаются "
+                            "только неаутентифицированные данные — impact нужно доказать.",
+                evidence=f"Origin: {CORS_PROBE_ORIGIN} → ACAO: {acao}; ACAC: отсутствует",
+                remediation="Отражай только Origin из строгого allowlist.",
+                cvss_vector="AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:N/A:N",
+            ))
+    elif acao == "*" and acac:
+        out.append(Finding(
+            title="CORS: wildcard ACAO вместе с Allow-Credentials",
+            severity="low", target=url, module="web",
+            description="ACAO: * одновременно с Allow-Credentials: true — невалидная "
+                        "комбинация (браузер её игнорирует), но признак неверной CORS-настройки.",
+            evidence="ACAO: *; ACAC: true",
+            remediation="Убери Allow-Credentials при wildcard либо задай строгий allowlist.",
+            cvss_vector="AV:N/AC:H/PR:N/UI:R/S:U/C:L/I:N/A:N",
+        ))
+
+    # Origin: null (эксплуатируется из sandboxed iframe / data: документа)
+    rn = http.get(url, headers={"Origin": "null"})
+    if rn.status and rn.headers.get("access-control-allow-origin", "") == "null" \
+            and rn.headers.get("access-control-allow-credentials", "").strip().lower() == "true":
+        out.append(Finding(
+            title="CORS: разрешён Origin null с credentials",
+            severity="high", target=url, module="web",
+            description="ACAO: null + Allow-Credentials: true. Origin null достижим из "
+                        "sandboxed iframe — атакующий читает аутентифицированные ответы.",
+            evidence="Origin: null → ACAO: null; ACAC: true",
+            remediation="Никогда не доверяй Origin: null; используй строгий allowlist.",
+            cvss_vector="AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:L/A:N",
+        ))
+    return out
+
+
+def _is_real_exposure(r, baseline, marker: bytes) -> bool:
+    """Отличить реально экспонированный файл от soft-404 / SPA catch-all.
+
+    На сайтах, где любой путь возвращает 200 (SPA/кастомный 404), сам по себе
+    статус 200 — не доказательство. Тогда требуем, чтобы ответ был специфичен
+    для файла, а не повторял общую оболочку приложения."""
+    if r.status != 200:
+        return False
+    catch_all = baseline is not None and baseline.status == 200
+    if marker:
+        if marker not in r.body:
+            return False
+        # на catch-all маркер должен отличать файл от общей оболочки
+        if catch_all and baseline.body and marker in baseline.body:
+            return False
+        return True
+    # без маркера: на catch-all нужен content-type, отличный от оболочки
+    if catch_all:
+        ct = r.headers.get("content-type", "").lower()
+        base_ct = baseline.headers.get("content-type", "").lower()
+        if "html" in ct and "html" in base_ct:
+            return False
+    return True
 
 
 def _tls_finding(host: str, port: int = 443) -> Finding | None:
@@ -128,17 +226,24 @@ def run(scope: Scope, store: Store, http: SafeHTTP, authorized: bool,
                     cvss_vector="AV:N/AC:H/PR:N/UI:R/S:U/C:L/I:N/A:N",
                 ))
 
+            # CORS: небезопасное доверие к Origin (пассивно, чистый GET)
+            findings.extend(_cors_findings(url, http))
+
+        # базовая линия soft-404 / SPA catch-all: один запрос по несуществующему пути
+        baseline = http.get(url.rstrip("/") + SOFT404_PROBE)
+
         # экспонированные файлы
         for path, (desc, rem, vec, marker) in SENSITIVE_PATHS.items():
             probe = url.rstrip("/") + path
             scope.guard(probe)
             r = http.get(probe)
-            if r.status == 200 and (not marker or marker in r.body):
+            if _is_real_exposure(r, baseline, marker):
                 sev = "info" if not vec else "high"
+                note = " (отличается от soft-404 базовой линии)" if baseline.status == 200 else ""
                 findings.append(Finding(
                     title=f"Экспонирован {path}", severity=sev,
                     target=probe, module="web", description=desc,
-                    evidence=f"GET {probe} → 200 ({len(r.body)} байт)",
+                    evidence=f"GET {probe} → 200 ({len(r.body)} байт){note}",
                     remediation=rem, cvss_vector=vec,
                 ))
 
